@@ -9,8 +9,10 @@ import IssueList from "./IssueList";
 /**
  * Preview of one output: its first rows in a DataTable, a row-count caption and the output's issues.
  * `preview` is the usePreview() result; `rows` is the slice of it to show in the table.
+ * `cellMarks` are the conditional-format highlights of those rows ([row, col, style, bold][],
+ * DataTable's `cellMarks` prop).
  */
-export default function OutputPreview({ output, preview, rows, issues, columnIssues, onGoToUpload }) {
+export default function OutputPreview({ output, preview, rows, cellMarks, issues, columnIssues, onGoToUpload }) {
   const { data, loading, error, hasData } = preview;
 
   let caption = "The first rows this output will contain.";
@@ -67,6 +69,7 @@ export default function OutputPreview({ output, preview, rows, issues, columnIss
             maxHeight={360}
             loading={loading}
             columnIssues={columnIssues}
+            cellMarks={cellMarks}
             caption={`Preview of ${output.name.trim() || "this output"}`}
             emptyMessage="No rows match this output's filters."
           />

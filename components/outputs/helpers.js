@@ -150,6 +150,46 @@ export function summarizeSort(rules, options) {
   return `Sorted by ${parts.join(", then ")}.`;
 }
 
+/* ------------------------------------------------------------------ */
+/* conditional formats (Output.conditionalFormats)                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What is wrong with one conditional format rule, or null when it is complete.
+ * `level: 'error'` = it points at a column this output no longer has; `'incomplete'` = the
+ * column or a value is still missing (the engine ignores the rule until then).
+ *
+ * @returns {{ level: 'error' | 'incomplete', message: string } | null}
+ */
+export function describeConditionalFormat(rule, resultColumns) {
+  if (!rule) return null;
+  if (!rule.columnKey) return { level: "incomplete", message: "Choose a column. Until then this rule is ignored." };
+  if (!(resultColumns || []).some((column) => column.key === rule.columnKey)) {
+    return {
+      level: "error",
+      message: "This column is no longer in the output. Choose another one; until then the rule is ignored.",
+    };
+  }
+  const spec = FILTER_OPERATORS[rule.operator];
+  if (!spec) return null;
+  if (spec.arity >= 1 && String(rule.value ?? "").trim() === "") {
+    return { level: "incomplete", message: "Enter a value. Until then this rule is ignored." };
+  }
+  if (spec.arity >= 2 && String(rule.value2 ?? "").trim() === "") {
+    return { level: "incomplete", message: "Enter both values. Until then this rule is ignored." };
+  }
+  return null;
+}
+
+const EMPTY_MARKS = [];
+
+/** Highlight tuples [row, column, style, bold] that fall inside `rowCount` rows (for a sliced table). */
+export function visibleHighlights(highlights, rowCount) {
+  if (!Array.isArray(highlights) || !highlights.length) return EMPTY_MARKS;
+  const inside = highlights.filter((mark) => Array.isArray(mark) && mark[0] < rowCount);
+  return inside.length === highlights.length ? highlights : inside;
+}
+
 /** "Grouped by Region, City with Sum of Amount, Count." */
 export function summarizeGroupBy(definition, groupBy) {
   if (!isGroupingActive(groupBy)) return "No grouping: one row per source row.";
