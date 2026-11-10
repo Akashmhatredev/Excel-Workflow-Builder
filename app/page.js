@@ -1,4 +1,5 @@
 import { ArrowRight, Columns3, Download, FileJson, FileSpreadsheet, FileUp, Files, LayoutTemplate } from "lucide-react";
+import RecentRuns from "@/components/history/RecentRuns";
 import ContinueCard from "@/components/shell/ContinueCard";
 import PrivacyNote from "@/components/shell/PrivacyNote";
 import RecentTemplates from "@/components/shell/RecentTemplates";
@@ -69,6 +70,8 @@ export default function HomePage() {
       </section>
 
       <ContinueCard />
+
+      <RecentRuns />
 
       <RecentTemplates />
 
