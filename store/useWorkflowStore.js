@@ -9,9 +9,11 @@ import {
   createId,
   createOutput,
   createTransform,
+  isLookupConfigured,
   matchColumns,
   normalizeDefinition,
   normalizeName,
+  pickSheetNames as pickSheets,
   remapColumnRefs,
   uniqueName,
 } from "../lib/schema";
@@ -41,8 +43,11 @@ export const STEPS = [
 const HISTORY_LIMIT = 60;
 const COALESCE_MS = 900;
 
+export const LOOKUP_DATASET = "lookup";
+
 let lastCommit = { tag: null, at: 0 };
 let loadToken = 0;
+let lookupToken = 0;
 
 const emptyData = () => ({
   file: null, // { name, size, lastModified }
@@ -57,13 +62,15 @@ const emptyData = () => ({
   columnFix: null, // { missing: string[], suggestions: { [name]: string|null } }
 });
 
-function pickSheets(sheets, wanted) {
-  const byName = new Map(sheets.map((sheet) => [normalizeName(sheet.name), sheet.name]));
-  const matched = (wanted || []).map((name) => byName.get(normalizeName(name))).filter(Boolean);
-  if (matched.length) return [...new Set(matched)];
-  const firstWithRows = sheets.find((sheet) => sheet.rowCount > 0) || sheets[0];
-  return firstWithRows ? [firstWithRows.name] : [];
-}
+const emptyLookup = () => ({
+  lookupFile: null, // { name, size }
+  lookupSheets: [], // [{ name, rowCount, colCount }]
+  lookupColumns: [], // [{ name, type, index }]
+  lookupRowCount: 0,
+  lookupStatus: "idle", // 'idle' | 'parsing' | 'ready' | 'error'
+  lookupError: null,
+  lookupInfo: null, // { applied, matched, unmatched, addedColumns: string[] } from the last table load
+});
 
 function stripFieldFromFilterGroup(group, fieldId) {
   if (!group || !Array.isArray(group.rules)) return group;
@@ -164,7 +171,10 @@ export const useWorkflowStore = create((set, get) => {
   const loadTableInto = async (sheetNames, headerRow, token) => {
     set({ status: "loading", error: null, progress: { phase: "loading" } });
     try {
-      const table = await engine.loadTable({ sheetNames, headerRow, previewLimit: 50 });
+      const before = get();
+      const lookup =
+        before.lookupStatus === "ready" && isLookupConfigured(before.definition.lookup) ? before.definition.lookup : null;
+      const table = await engine.loadTable({ sheetNames, headerRow, previewLimit: 50, lookup });
       if (token !== loadToken) return false;
       const state = get();
       let definition = {
@@ -179,6 +189,15 @@ export const useWorkflowStore = create((set, get) => {
       const names = table.columns.map((column) => column.name);
       const match = matchColumns(collectColumnRefs(definition), names, loadAliases());
       definition = remapColumnRefs(definition, match.map);
+      // Columns that a not-yet-loaded lookup file will add are not "missing": the user just has to add that file.
+      const pendingLookup = new Set();
+      if (!lookup && isLookupConfigured(definition.lookup)) {
+        for (const column of definition.lookup.expectedColumns) {
+          pendingLookup.add(normalizeName(column.name));
+          pendingLookup.add(normalizeName(`${column.name} (lookup)`));
+        }
+      }
+      const missing = match.missing.filter((name) => !pendingLookup.has(normalizeName(name)));
       set({
         status: "ready",
         progress: null,
@@ -189,7 +208,8 @@ export const useWorkflowStore = create((set, get) => {
         warnings: table.warnings || [],
         definition,
         dataVersion: state.dataVersion + 1,
-        columnFix: match.missing.length ? { missing: match.missing, suggestions: match.suggestions } : null,
+        columnFix: missing.length ? { missing, suggestions: match.suggestions } : null,
+        lookupInfo: table.lookupInfo || null,
       });
       return true;
     } catch (error) {
@@ -205,6 +225,57 @@ export const useWorkflowStore = create((set, get) => {
         columnFix: null,
       });
       toast.error("Could not load the sheet", { description: error.message });
+      return false;
+    }
+  };
+
+  /** Re-read the main table (after the lookup changed). Resolves to true when nothing is loaded. */
+  const reloadMainTable = async () => {
+    const state = get();
+    if (!state.sheets.length) return true;
+    loadToken += 1;
+    return loadTableInto(
+      pickSheets(state.sheets, state.definition.source.sheetNames),
+      state.definition.source.headerRow || 1,
+      loadToken,
+    );
+  };
+
+  const loadLookupTableInto = async (sheetName, headerRow, token) => {
+    try {
+      const table = await engine.loadTable({
+        datasetId: LOOKUP_DATASET,
+        sheetNames: sheetName ? [sheetName] : [],
+        headerRow,
+        previewLimit: 0,
+      });
+      if (token !== lookupToken) return false;
+      const names = table.columns.map((column) => column.name);
+      const current = get().definition.lookup;
+      const keyMatch = matchColumns(current.lookupColumn ? [current.lookupColumn] : [], names);
+      const columnMatch = matchColumns(current.columns, names);
+      const lookup = {
+        ...current,
+        enabled: true,
+        sheetName: (table.sheetNames && table.sheetNames[0]) || sheetName || "",
+        headerRow: table.headerRow || headerRow,
+        lookupColumn: keyMatch.map[current.lookupColumn] || "",
+        columns: current.columns.map((name) => columnMatch.map[name]).filter(Boolean),
+        expectedColumns: table.columns.map(({ name, type }) => ({ name, type })),
+      };
+      set((state) => ({
+        definition: { ...state.definition, lookup },
+        lookupColumns: table.columns,
+        lookupRowCount: table.rowCount,
+        lookupStatus: "ready",
+        lookupError: null,
+      }));
+      await reloadMainTable();
+      return true;
+    } catch (error) {
+      if (token !== lookupToken) return false;
+      set({ lookupStatus: "error", lookupError: error.message, lookupColumns: [], lookupRowCount: 0 });
+      toast.error("Could not load the lookup sheet", { description: error.message });
       return false;
     }
   };
@@ -276,6 +347,61 @@ export const useWorkflowStore = create((set, get) => {
       set((state) => ({ ...emptyData(), dataVersion: state.dataVersion + 1 }));
     },
 
+    /* ---------------- lookup file (memory only) ---------------- */
+    ...emptyLookup(),
+
+    /**
+     * Load a second file to merge into the main table (left join on a key column).
+     * Its columns then appear as ordinary source columns. Resolves to true on success.
+     */
+    loadLookupFile: async (file) => {
+      if (!file) return false;
+      lookupToken += 1;
+      const token = lookupToken;
+      set({ ...emptyLookup(), lookupFile: { name: file.name, size: file.size }, lookupStatus: "parsing" });
+      try {
+        const parsed = await engine.parseFile(file, { datasetId: LOOKUP_DATASET });
+        if (token !== lookupToken) return false;
+        set({ lookupSheets: parsed.sheets || [] });
+        const lookup = get().definition.lookup;
+        const [sheetName] = pickSheets(parsed.sheets || [], lookup.sheetName ? [lookup.sheetName] : []);
+        return await loadLookupTableInto(sheetName, lookup.headerRow || 1, token);
+      } catch (error) {
+        if (token !== lookupToken) return false;
+        set({ lookupStatus: "error", lookupError: error.message });
+        toast.error("Could not read the lookup file", { description: error.message });
+        return false;
+      }
+    },
+
+    /**
+     * Change the lookup settings: { enabled, sheetName, headerRow, matchColumn, lookupColumn, columns }.
+     * Re-reads the lookup sheet when needed and re-joins the main table. Not part of undo history.
+     */
+    setLookup: async (patch) => {
+      const before = get().definition.lookup;
+      const lookup = { ...before, ...(patch || {}) };
+      set((state) => ({ definition: { ...state.definition, lookup }, dirty: true }));
+      const sheetChanged = lookup.sheetName !== before.sheetName || lookup.headerRow !== before.headerRow;
+      if (get().lookupStatus !== "idle" && get().lookupSheets.length && sheetChanged) {
+        lookupToken += 1;
+        return loadLookupTableInto(lookup.sheetName, lookup.headerRow || 1, lookupToken);
+      }
+      return reloadMainTable();
+    },
+
+    /** Forget the lookup file and switch the merge off. */
+    clearLookup: async () => {
+      lookupToken += 1;
+      engine.disposeDataset(LOOKUP_DATASET).catch(() => {});
+      set((state) => ({
+        ...emptyLookup(),
+        definition: { ...state.definition, lookup: { ...state.definition.lookup, enabled: false } },
+        dirty: true,
+      }));
+      return reloadMainTable();
+    },
+
     /** Apply the user's answers from the "Fix mapping" screen. map = { missingName: actualColumnName | "" }. */
     resolveColumnFix: (map) => {
       commit(null, (definition) => remapColumnRefs(definition, map || {}));
@@ -303,7 +429,7 @@ export const useWorkflowStore = create((set, get) => {
       const previous = state.past[state.past.length - 1];
       lastCommit = { tag: null, at: 0 };
       set({
-        definition: { ...previous, source: state.definition.source },
+        definition: { ...previous, source: state.definition.source, lookup: state.definition.lookup },
         past: state.past.slice(0, -1),
         future: [state.definition, ...state.future].slice(0, HISTORY_LIMIT),
         dirty: true,
@@ -316,7 +442,7 @@ export const useWorkflowStore = create((set, get) => {
       const next = state.future[0];
       lastCommit = { tag: null, at: 0 };
       set({
-        definition: { ...next, source: state.definition.source },
+        definition: { ...next, source: state.definition.source, lookup: state.definition.lookup },
         past: [...state.past, state.definition].slice(-HISTORY_LIMIT),
         future: state.future.slice(1),
         dirty: true,
@@ -441,6 +567,23 @@ export const useWorkflowStore = create((set, get) => {
     setGroupBy: (groupBy) => commit("groupBy", (definition) => ({ ...definition, groupBy })),
     setSort: (rules) => commit("sort", (definition) => ({ ...definition, sort: rules })),
 
+    /** Data cleaning options. patch is merged; patch.removeDuplicates and patch.fillBlanks are merged one level deep. */
+    setCleaning: (patch) => {
+      const p = patch || {};
+      const keys = Object.keys(p)
+        .concat(Object.keys(p.removeDuplicates || {}), Object.keys(p.fillBlanks || {}))
+        .join(",");
+      commit(`cleaning:${keys}`, (definition) => ({
+        ...definition,
+        cleaning: {
+          ...definition.cleaning,
+          ...p,
+          removeDuplicates: { ...definition.cleaning.removeDuplicates, ...(p.removeDuplicates || {}) },
+          fillBlanks: { ...definition.cleaning.fillBlanks, ...(p.fillBlanks || {}) },
+        },
+      }));
+    },
+
     /* outputs */
 
     /** Add an output. Returns the new output id. */
@@ -531,7 +674,12 @@ export const useWorkflowStore = create((set, get) => {
         columnFix: null,
         step: mode === "edit" || hasFile ? 1 : 0,
       });
-      if (hasFile) {
+      if (state.lookupSheets.length && isLookupConfigured(definition.lookup)) {
+        // Re-read the already loaded lookup file with the template's settings; that also re-joins the main table.
+        lookupToken += 1;
+        const [sheetName] = pickSheets(state.lookupSheets, definition.lookup.sheetName ? [definition.lookup.sheetName] : []);
+        loadLookupTableInto(sheetName, definition.lookup.headerRow || 1, lookupToken);
+      } else if (hasFile) {
         loadToken += 1;
         loadTableInto(pickSheets(state.sheets, definition.source.sheetNames), definition.source.headerRow, loadToken);
       }
@@ -562,7 +710,12 @@ export const useWorkflowStore = create((set, get) => {
         draftRestored: false,
         step: 0,
       });
-      if (!keepData) get().clearData();
+      if (!keepData) {
+        lookupToken += 1;
+        engine.disposeDataset(LOOKUP_DATASET).catch(() => {});
+        set(emptyLookup());
+        get().clearData();
+      }
     },
 
     /** The part of the state that is autosaved. Definition only: never data. */
@@ -614,6 +767,9 @@ export const selectIsBusy = (state) => state.status === "parsing" || state.statu
  */
 export const selectAvailableColumns = (state) =>
   state.columns.length ? state.columns : state.definition.source.expectedColumns;
+
+/** True when the workflow expects a lookup file that has not been loaded yet. */
+export const selectLookupNeeded = (state) => isLookupConfigured(state.definition.lookup) && state.lookupStatus !== "ready";
 
 export const selectCanUndo = (state) => state.past.length > 0;
 export const selectCanRedo = (state) => state.future.length > 0;
