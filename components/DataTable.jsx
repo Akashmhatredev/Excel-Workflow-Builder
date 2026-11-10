@@ -4,6 +4,7 @@ import { AlertCircle, AlertTriangle, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { List, useVirtualizer } from "react-window";
 import { cn } from "@/lib/cn";
+import { HIGHLIGHT_STYLES } from "@/lib/schema";
 
 /**
  * DataTable: a read-only table for display-ready rows (string[][]).
@@ -19,10 +20,15 @@ import { cn } from "@/lib/cn";
  *   columnIssues   { [columnKey]: 'error' | 'warning' } highlights those headers
  *   columnWidths   { [columnKey]: px } overrides the automatic widths
  *   caption        accessible name of the table
+ *   cellMarks      [row, col, tone, bold?][] marks single cells (indexes into rows / columns):
+ *                  'error' (danger tint + corner marker), 'blank' (hatched), or a HIGHLIGHT_STYLES key
+ *   totalsRow      the last row holds totals: bold, and sticky at the bottom of the scroll area
+ *   totalsColumn   the last column holds totals: bold, with a rule on its left
  *
  * Rows are virtualized with react-window's List and columns with its useVirtualizer,
  * so only the visible cells are in the DOM. One element scrolls both ways; the header
  * and the row numbers are sticky inside it, so the page itself never scrolls sideways.
+ * Cell marks are indexed by row once (a Map of Maps), so a rendered cell costs one lookup.
  */
 
 const ROW_HEIGHT = 36;
@@ -32,8 +38,14 @@ const MAX_WIDTH = 320;
 const SAMPLE_ROWS = 60;
 const EMPTY = [];
 
-const CELL = "absolute top-0 h-full overflow-hidden px-3 leading-9 text-ellipsis whitespace-nowrap text-fg";
-const CELL_NUMERIC = `${CELL} text-right tabular-nums`;
+const CELL = "absolute top-0 h-full overflow-hidden px-3 leading-9 text-ellipsis whitespace-nowrap";
+const CELL_NUMERIC = "text-right tabular-nums";
+const TOTALS_COLUMN = "border-l border-line-strong font-semibold";
+const MARK_LABELS = { error: "error", blank: "blank" };
+// Hatching (a pattern, not just a colour) for blank cells; works in both themes.
+const BLANK_STYLE = {
+  backgroundImage: "repeating-linear-gradient(135deg, var(--line-strong) 0 1px, transparent 1px 7px)",
+};
 const HEADER_CELL = "absolute top-0 flex h-full items-center gap-1.5 px-3 font-semibold";
 const GUTTER =
   "sticky left-0 z-10 h-full border-r border-line bg-surface-2 px-2 text-right text-xs text-muted tabular-nums select-none";
@@ -45,6 +57,53 @@ function normalizeColumns(columns) {
     const key = source.key == null || source.key === "" ? name || `column-${index + 1}` : String(source.key);
     return { key, name, numeric: source.type === "number" };
   });
+}
+
+/**
+ * cellMarks -> Map<row, Map<col, { tone, bold }>>, or null when there are none.
+ * Unknown tones are dropped; when a cell is marked twice an 'error' wins, otherwise the last mark.
+ */
+function indexMarks(marks) {
+  if (!Array.isArray(marks) || !marks.length) return null;
+  const byRow = new Map();
+  for (const mark of marks) {
+    if (!Array.isArray(mark)) continue;
+    const [row, col, tone, bold] = mark;
+    if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || col < 0) continue;
+    if (!MARK_LABELS[tone] && !HIGHLIGHT_STYLES[tone]) continue;
+    let cells = byRow.get(row);
+    if (!cells) {
+      cells = new Map();
+      byRow.set(row, cells);
+    }
+    const previous = cells.get(col);
+    if (previous && previous.tone === "error" && tone !== "error") continue;
+    cells.set(col, { tone, bold: Boolean(bold) });
+  }
+  return byRow.size ? byRow : null;
+}
+
+/** Class, inline style and screen-reader label of one cell. */
+function cellLook(column, mark, isTotalsColumn, left, width) {
+  const style = { left, width };
+  let className = cn(CELL, column.numeric && CELL_NUMERIC, isTotalsColumn && TOTALS_COLUMN);
+  let label = "";
+  if (!mark) return { className: cn(className, "text-fg"), style, label };
+  if (mark.tone === "error") {
+    className = cn(className, "bg-danger-soft pr-4 text-danger");
+    label = "error";
+  } else if (mark.tone === "blank") {
+    className = cn(className, "text-fg");
+    Object.assign(style, BLANK_STYLE);
+    label = "blank";
+  } else {
+    const look = HIGHLIGHT_STYLES[mark.tone];
+    style.backgroundColor = look.fill;
+    style.color = look.color;
+    label = `highlighted ${look.label.toLowerCase()}`;
+  }
+  if (mark.bold) className = cn(className, "font-semibold");
+  return { className, style, label };
 }
 
 function gutterWidth(lastRowNumber) {
@@ -102,24 +161,28 @@ function buildLayout(cols, rows, overrides, issues, gutter, available) {
   return { widths, lefts, total, slots: gutter ? [gutter, ...widths] : widths };
 }
 
-/** One virtualized row. Only the cells of the visible columns (first..last) are rendered. */
-function DataTableRow({ index, style, data, cols, layout, first, last, gutter, startIndex }) {
+/** One row. Only the cells of the visible columns (first..last) are rendered. */
+function DataTableRow({ index, style, data, cols, layout, first, last, gutter, startIndex, marks, totalsColumn, totals = false }) {
   const row = data[index] || EMPTY;
+  const rowMarks = marks ? marks.get(index) : undefined;
   const colOffset = gutter ? 2 : 1;
+  const lastCol = cols.length - 1;
   const cells = [];
   for (let c = first; c <= last; c += 1) {
     const raw = row[c];
     const value = raw == null ? "" : String(raw);
+    const look = cellLook(cols[c], rowMarks ? rowMarks.get(c) : undefined, totalsColumn && c === lastCol, layout.lefts[c], layout.widths[c]);
+    const tip = look.label ? `${value || "(empty)"} (${look.label})` : value;
     cells.push(
-      <div
-        key={c}
-        role="cell"
-        aria-colindex={c + colOffset}
-        title={value || undefined}
-        className={cols[c].numeric ? CELL_NUMERIC : CELL}
-        style={{ left: layout.lefts[c], width: layout.widths[c] }}
-      >
+      <div key={c} role="cell" aria-colindex={c + colOffset} title={tip || undefined} className={look.className} style={look.style}>
         {value}
+        {look.label === "error" ? (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 right-0 size-0 border-t-8 border-l-8 border-t-danger border-l-transparent"
+          />
+        ) : null}
+        {look.label ? <span className="sr-only"> ({look.label})</span> : null}
       </div>,
     );
   }
@@ -128,11 +191,22 @@ function DataTableRow({ index, style, data, cols, layout, first, last, gutter, s
       role="row"
       aria-rowindex={index + 2}
       style={style}
-      className={cn("border-b border-line hover:bg-brand-soft", index % 2 ? "bg-surface-2" : "bg-surface")}
+      className={
+        totals
+          ? "relative border-t-2 border-line-strong bg-surface-2 font-semibold"
+          : cn("border-b border-line hover:bg-brand-soft", index % 2 ? "bg-surface-2" : "bg-surface")
+      }
     >
       {gutter ? (
         <div role="cell" aria-colindex={1} className={cn(GUTTER, "leading-9")} style={{ width: gutter }}>
-          {startIndex + index + 1}
+          {totals ? (
+            <>
+              <span aria-hidden="true">Σ</span>
+              <span className="sr-only">Totals</span>
+            </>
+          ) : (
+            startIndex + index + 1
+          )}
         </div>
       ) : null}
       {cells}
@@ -153,6 +227,9 @@ export default function DataTable({
   columnWidths,
   caption,
   className,
+  cellMarks,
+  totalsRow = false,
+  totalsColumn = false,
 }) {
   const [scroller, setScroller] = useState(null);
   const [content, setContent] = useState(null);
@@ -182,7 +259,10 @@ export default function DataTable({
   const data = Array.isArray(rows) ? rows : EMPTY;
   const rowCount = data.length;
   const hasColumns = cols.length > 0;
-  const gutter = rowNumbers && hasColumns ? gutterWidth(startIndex + rowCount) : 0;
+  const hasTotalsRow = Boolean(totalsRow) && rowCount > 0;
+  const bodyCount = hasTotalsRow ? rowCount - 1 : rowCount;
+  const marks = useMemo(() => indexMarks(cellMarks), [cellMarks]);
+  const gutter = rowNumbers && hasColumns ? gutterWidth(startIndex + bodyCount) : 0;
 
   const layout = useMemo(
     () => buildLayout(cols, data, columnWidths, columnIssues, gutter, available),
@@ -206,8 +286,8 @@ export default function DataTable({
   const last = items.length ? Math.min(cols.length - 1, items[items.length - 1].index - slotOffset) : -1;
 
   const rowProps = useMemo(
-    () => ({ data, cols, layout, first, last, gutter, startIndex }),
-    [data, cols, layout, first, last, gutter, startIndex],
+    () => ({ data, cols, layout, first, last, gutter, startIndex, marks, totalsColumn: Boolean(totalsColumn) }),
+    [data, cols, layout, first, last, gutter, startIndex, marks, totalsColumn],
   );
 
   const label = caption || "Data table";
@@ -225,6 +305,7 @@ export default function DataTable({
         className={cn(
           HEADER_CELL,
           column.numeric && "justify-end",
+          totalsColumn && c === cols.length - 1 && "border-l border-line-strong",
           issue === "error" && "border-b-2 border-danger bg-danger-soft text-danger",
           issue === "warning" && "border-b-2 border-warning bg-warning-soft text-warning",
         )}
@@ -290,7 +371,7 @@ export default function DataTable({
             <List
               role="rowgroup"
               rowComponent={DataTableRow}
-              rowCount={rowCount}
+              rowCount={bodyCount}
               rowHeight={ROW_HEIGHT}
               rowProps={rowProps}
               scrollElement={scroller}
@@ -298,6 +379,11 @@ export default function DataTable({
               overscanCount={6}
               style={{ width: layout.total }}
             />
+            {hasTotalsRow ? (
+              <div role="rowgroup" className="sticky bottom-0 z-20" style={{ width: layout.total }}>
+                <DataTableRow index={rowCount - 1} style={{ height: ROW_HEIGHT }} totals {...rowProps} />
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
