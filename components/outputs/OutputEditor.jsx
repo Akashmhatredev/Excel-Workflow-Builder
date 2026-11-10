@@ -15,7 +15,8 @@ import {
 import { validateDefinition } from "@/lib/validate";
 import { selectAvailableColumns, useWorkflowStore } from "@/store/useWorkflowStore";
 import FieldPicker from "./FieldPicker";
-import { issuesForOutput, sortIssues } from "./helpers";
+import FormattingSection from "./FormattingSection";
+import { issuesForOutput, sortIssues, visibleHighlights } from "./helpers";
 import OutputPreview from "./OutputPreview";
 import OverridesSection from "./OverridesSection";
 import ReportSettings from "./ReportSettings";
@@ -135,6 +136,18 @@ export default function OutputEditor({ output, onDuplicate, onDelete }) {
     return levels;
   }, [allIssues, resultColumns]);
   const tableRows = useMemo(() => (data ? data.rows.slice(0, PREVIEW_ROWS) : NONE), [data]);
+  // Conditional-format hits of the rows the table shows (the worker may not send them yet: X1).
+  const tableMarks = useMemo(
+    () => visibleHighlights(data ? (data.highlights ?? NONE) : NONE, tableRows.length),
+    [data, tableRows],
+  );
+  const columnTypes = useMemo(() => {
+    const types = {};
+    for (const column of data && Array.isArray(data.columns) ? data.columns : NONE) {
+      if (column && column.key) types[column.key] = column.type;
+    }
+    return types;
+  }, [data]);
 
   const fileName = outputFileName(output).toLowerCase();
   const sameFileName = definition.outputs.some(
@@ -178,10 +191,17 @@ export default function OutputEditor({ output, onDuplicate, onDelete }) {
         issues={issues}
         onChange={(overrides) => updateOutput(output.id, { overrides })}
       />
+      <FormattingSection
+        output={output}
+        resultColumns={resultColumns}
+        columnTypes={columnTypes}
+        onChange={(patch) => updateOutput(output.id, patch)}
+      />
       <OutputPreview
         output={output}
         preview={preview}
         rows={tableRows}
+        cellMarks={tableMarks}
         issues={issues}
         columnIssues={columnIssues}
         onGoToUpload={() => setStep(0)}
