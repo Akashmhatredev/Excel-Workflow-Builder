@@ -172,7 +172,7 @@ describe("cleaning validation", () => {
     const all = validateDefinition(createDefinition({ fields, cleaning: createCleaning({ removeDuplicates: { enabled: true, keys: ["gone"] } }) }), columns);
     expect(all).toEqual([
       {
-        level: "error",
+        level: "warning",
         scope: "cleaning",
         id: "removeDuplicates",
         code: "missing-field",
