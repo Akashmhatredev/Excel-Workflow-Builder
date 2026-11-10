@@ -21,7 +21,7 @@ import { useTemplateStore } from "@/store/useTemplateStore";
 /** Link here (for example from the batch results) to open this section: /templates#column-aliases */
 export const ALIASES_ANCHOR = "column-aliases";
 
-const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const plural = (count, word, many = `${word}s`) => `${count} ${count === 1 ? word : many}`;
 
 function reportStorage(result) {
   if (isStorageFailure(result.code)) notifyStorageError({ code: result.code, key: KEYS.aliases }, { userAction: true });
@@ -99,14 +99,14 @@ export default function AliasManager() {
           onClick={() => setExpanded(!open)}
           className="flex min-h-14 w-full cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors hover:bg-surface-2"
         >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted">
+          <span className="hidden size-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-muted sm:flex">
             <ArrowLeftRight className="size-4" aria-hidden="true" />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-base font-semibold text-fg">Column aliases</span>
             <span className="block text-sm font-normal text-muted">Teach the app that two column names mean the same column.</span>
           </span>
-          <Badge className="shrink-0">{plural(aliases.length, "alias")}</Badge>
+          <Badge className="shrink-0">{plural(aliases.length, "alias", "aliases")}</Badge>
           <ChevronDown className={cn("size-4 shrink-0 text-muted transition-transform", open && "rotate-180")} aria-hidden="true" />
         </button>
       </h2>
