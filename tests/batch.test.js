@@ -325,6 +325,32 @@ describe("runBatch", () => {
     expect(worker.calls).toEqual([]);
   });
 
+  it("never lets two runs share the batch dataset at the same time", async () => {
+    const files = [addFile({ name: "a.xlsx", columns: ["Customer", "Amount"], rows: 1 }), addFile({ name: "b.xlsx", columns: ["Customer", "Amount"], rows: 2 })];
+    const [first, second] = await Promise.all([
+      runBatch({ files: [files[0]], definition: salesDefinition() }),
+      runBatch({ files: [files[1]], definition: salesDefinition() }),
+    ]);
+    expect(first.results[0]).toMatchObject({ fileName: "a.xlsx", rowCount: 1 });
+    expect(second.results[0]).toMatchObject({ fileName: "b.xlsx", rowCount: 2 });
+    const order = worker.calls.map((call) => call[0]);
+    expect(order).toEqual([
+      "parseFile",
+      "loadTable",
+      "buildOutput",
+      "buildOutput",
+      "disposeDataset",
+      "parseFile",
+      "loadTable",
+      "buildOutput",
+      "buildOutput",
+      "disposeDataset",
+    ]);
+    // a run that fails does not block the next one
+    await expect(runBatch({ files: [] })).rejects.toThrow();
+    expect((await runBatch({ files: [files[0]], definition: salesDefinition() })).results[0].ok).toBe(true);
+  });
+
   it("recognises spreadsheet file names", () => {
     expect(["a.xlsx", "B.XLS", "c.csv", "d.xlsm", "e.tsv"].every((name) => isSpreadsheetFile({ name }))).toBe(true);
     expect(["notes.txt", "image.png", "xlsx", "", null].some((name) => isSpreadsheetFile({ name }))).toBe(false);
