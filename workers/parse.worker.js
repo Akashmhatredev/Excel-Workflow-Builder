@@ -129,6 +129,7 @@ export const handlers = {
       totalRows: result.totalRows,
       sourceRows: result.sourceRows,
       issues: [...validateDefinition(definition, dataset.table.columns), ...result.issues],
+      stats: { ...result.stats },
     };
   },
 
