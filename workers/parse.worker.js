@@ -15,6 +15,7 @@ import { highlightCells } from "../lib/conditional.js";
 import { buildOutputFile, buildTable, listSheets, readWorkbook, zipFileName, zipFiles } from "../lib/excel.js";
 import { joinLookup } from "../lib/lookup.js";
 import { cellIssues, runPipeline, toDisplayRows } from "../lib/pipeline.js";
+import { runPivot } from "../lib/pivot.js";
 import { isLookupConfigured, normalizeDefinition } from "../lib/schema.js";
 import { toText } from "../lib/transforms.js";
 import { validateDefinition } from "../lib/validate.js";
@@ -192,6 +193,12 @@ export const handlers = {
       bytes,
       files: files.map((file, index) => ({ fileName: fileNames[index], rowCount: file.rowCount })),
     };
+  },
+
+  async runPivot({ datasetId, definition, rowKey, columnKey, valueKey, fn, limit }) {
+    checkDefinition(definition);
+    const dataset = getTable(datasetId);
+    return runPivot(dataset.table, definition, { rowKey, columnKey, valueKey, fn, limit: whole(limit, 200) });
   },
 
   async disposeDataset({ datasetId }) {
