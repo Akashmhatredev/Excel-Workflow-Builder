@@ -688,6 +688,9 @@ export const useWorkflowStore = create((set, get) => {
     /** Call after saving the current definition as a template. */
     markTemplateSaved: ({ id, name }) => set({ templateId: id || null, templateName: name || "", dirty: false }),
 
+    /** Change which template this workflow is linked to (after a rename or delete) without touching `dirty`. */
+    setTemplateLink: ({ id, name }) => set({ templateId: id || null, templateName: name || "" }),
+
     /** Start over with an empty definition. keepData=false also forgets the loaded file. */
     resetWorkflow: ({ keepData = true } = {}) => {
       lastCommit = { tag: null, at: 0 };

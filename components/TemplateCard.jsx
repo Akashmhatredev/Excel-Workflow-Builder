@@ -90,7 +90,7 @@ export default function TemplateCard({ template }) {
       return;
     }
     // The workflow store remembers the name of the template it came from: keep it in step.
-    if (useWorkflowStore.getState().templateId === template.id) useWorkflowStore.setState({ templateName: name });
+    if (useWorkflowStore.getState().templateId === template.id) useWorkflowStore.getState().setTemplateLink({ id: template.id, name });
     setRenaming(false);
     toast.success("Template renamed", { description: `It is now called "${name}".` });
   };
@@ -114,7 +114,7 @@ export default function TemplateCard({ template }) {
     }
     // A workflow that came from this template keeps its definition but no longer points at a template.
     if (useWorkflowStore.getState().templateId === template.id) {
-      useWorkflowStore.setState({ templateId: null, templateName: "" });
+      useWorkflowStore.getState().setTemplateLink({ id: null, name: "" });
     }
     toast.success("Template deleted", { description: `"${template.name}" was removed from this browser.` });
   };
