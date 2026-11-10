@@ -445,24 +445,24 @@ describe("output files and zips", () => {
   const name = createField({ name: "Name", source: { kind: "column", column: "Name" }, transforms: [createTransform("upper")] });
   const qty = createField({ name: "Qty", source: { kind: "column", column: "Qty" } });
 
-  it("builds csv and xlsx outputs", () => {
+  it("builds csv and xlsx outputs", async () => {
     const csv = createOutput({ name: "Daily: list", fileType: "csv" });
     const xlsx = createOutput({ name: "Daily", fileType: "xlsx", sheetName: "Data" });
     const definition = createDefinition({ fields: [name, qty], outputs: [csv, xlsx] });
-    const csvFile = buildOutputFile(table, definition, csv.id);
+    const csvFile = await buildOutputFile(table, definition, csv.id);
     expect(csvFile).toMatchObject({ fileName: "Daily list.csv", mime: "text/csv;charset=utf-8", rowCount: 2 });
     expect(new TextDecoder("utf-8", { ignoreBOM: true }).decode(csvFile.bytes)).toBe("﻿Name,Qty\r\nASHA,2\r\nRAVI,5\r\n");
-    const xlsxFile = buildOutputFile(table, definition, xlsx.id);
+    const xlsxFile = await buildOutputFile(table, definition, xlsx.id);
     expect(xlsxFile.fileName).toBe("Daily.xlsx");
     expect(xlsxFile.mime).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     expect(XLSX.read(xlsxFile.bytes, { type: "array" }).SheetNames).toEqual(["Data"]);
   });
 
-  it("refuses missing outputs and outputs without columns", () => {
+  it("refuses missing outputs and outputs without columns", async () => {
     const empty = createOutput({ name: "Empty", fieldIds: [] });
     const definition = createDefinition({ fields: [name], outputs: [empty] });
-    expect(codeOf(() => buildOutputFile(table, definition, "out_nope"))).toBe("INVALID_DEFINITION");
-    expect(codeOf(() => buildOutputFile(table, definition, empty.id))).toBe("INVALID_DEFINITION");
+    await expect(buildOutputFile(table, definition, "out_nope")).rejects.toMatchObject({ code: "INVALID_DEFINITION" });
+    await expect(buildOutputFile(table, definition, empty.id)).rejects.toMatchObject({ code: "INVALID_DEFINITION" });
   });
 
   it("de-duplicates file names ignoring case", () => {

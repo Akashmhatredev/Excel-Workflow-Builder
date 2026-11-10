@@ -162,7 +162,7 @@ export const handlers = {
     ctx.progress({ phase: "building", percent: 0, message: "Running the workflow" });
     const result = resultFor(dataset, definition, outputId);
     ctx.progress({ phase: "building", percent: 50, message: "Writing the file" });
-    const file = buildOutputFile(dataset.table, definition, outputId, { result });
+    const file = await buildOutputFile(dataset.table, definition, outputId, { result });
     ctx.progress({ phase: "building", percent: 100 });
     return file;
   },
@@ -182,7 +182,7 @@ export const handlers = {
         message: `Building ${output.name || "output"} (${i + 1} of ${wanted.length})`,
       });
       const result = resultFor(dataset, definition, output.id);
-      files.push(buildOutputFile(dataset.table, definition, output.id, { result }));
+      files.push(await buildOutputFile(dataset.table, definition, output.id, { result }));
     }
     ctx.progress({ phase: "building", percent: Math.round((wanted.length / (wanted.length + 1)) * 100), message: "Zipping" });
     const { bytes, fileNames } = await zipFiles(files);
