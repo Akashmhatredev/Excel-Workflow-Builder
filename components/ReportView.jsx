@@ -1,11 +1,12 @@
 "use client";
 
-import { DEFAULT_BRAND_COLOR, REPORT_MAX_ROWS } from "@/lib/schema";
+import { DEFAULT_BRAND_COLOR, HIGHLIGHT_STYLES, REPORT_MAX_ROWS } from "@/lib/schema";
 
 /**
- * ReportView (owner: Agent C): the table "poster" that is exported as a PNG.
+ * ReportView (owner: Agent C): the table "poster" that is exported as a PNG and a PDF.
  *
- * Props: { ref, report, columns: [{ key, name, type }], rows: string[][], totalRows?, generatedAt?, className? }
+ * Props: { ref, report, columns: [{ key, name, type }], rows: string[][], totalRows?, generatedAt?,
+ *          highlights?: [row, column, style, bold][], className? }
  *
  * - Static and self-contained: every colour and size is an inline style from the palette below,
  *   so it looks the same in the app's light and dark mode and inside an image capture.
@@ -14,6 +15,11 @@ import { DEFAULT_BRAND_COLOR, REPORT_MAX_ROWS } from "@/lib/schema";
  * - `ref` lands on the root element (React 19: ref is a normal prop) for lib/share.js.
  * - `generatedAt` (Date, ISO string or epoch ms) is shown when `report.showDate` is on. The
  *   caller supplies it because reading the clock during render is not allowed.
+ * - `highlights` are runPreview's conditional-format hits (indexes into `rows` / `columns`, style a
+ *   HIGHLIGHT_STYLES key). The first tuple for a cell wins. The dark theme uses a dark tint of the
+ *   same colour with light text, so highlighted cells stay readable on every theme.
+ * - `report.logo` (a png / jpeg / webp data URL) is drawn at `report.logoHeight` px, left of the
+ *   title, or above it when the logo is too wide to leave room for the title.
  */
 
 const FONT_STACK =
@@ -135,6 +141,61 @@ function paletteFor(report) {
   return PALETTES[report.theme] || PALETTES.light;
 }
 
+/**
+ * Cell colours of each highlight style on this theme: `{ [style]: { bg, fg } }`.
+ * Light and brand tables are white, so the Excel colours are used as they are. On the dark table
+ * the fill is a dark tint of the text colour and the text is the light fill colour (about 8.5:1 or
+ * more); if a tint ever falls short of 4.5:1 the Excel pair is used instead.
+ */
+function highlightColors(theme, palette) {
+  const table = parseHex(palette.tableBg) || parseHex(WHITE);
+  const out = {};
+  for (const [key, spec] of Object.entries(HIGHLIGHT_STYLES)) {
+    const fill = parseHex(spec.fill);
+    const color = parseHex(spec.color);
+    if (!fill || !color) continue;
+    if (theme === "dark") {
+      const tint = mix(color, table, 0.5);
+      if (contrast(fill, parseHex(tint)) >= MIN_CONTRAST) {
+        out[key] = { bg: tint, fg: toHex(fill) };
+        continue;
+      }
+    }
+    out[key] = { bg: toHex(fill), fg: toHex(color) };
+  }
+  return out;
+}
+
+/** Map of `row * columnCount + column` -> { style, bold } for the visible cells (first tuple wins). */
+function highlightMap(highlights, rowCount, columnCount) {
+  const map = new Map();
+  if (!Array.isArray(highlights) || !rowCount || !columnCount) return map;
+  for (const mark of highlights) {
+    if (!Array.isArray(mark)) continue;
+    const [row, column, style, bold] = mark;
+    if (!Number.isInteger(row) || !Number.isInteger(column)) continue;
+    if (row < 0 || column < 0 || row >= rowCount || column >= columnCount) continue;
+    const known = Object.prototype.hasOwnProperty.call(HIGHLIGHT_STYLES, style) ? style : null;
+    if (!known && !bold) continue;
+    const key = row * columnCount + column;
+    if (!map.has(key)) map.set(key, { style: known, bold: Boolean(bold) });
+  }
+  return map;
+}
+
+/* Only inline raster images: never a remote URL or an SVG (same rule as normalizeDefinition). */
+const LOGO_PATTERN = /^data:image\/(png|jpeg|webp);base64,[a-z0-9+/=]+$/i;
+const LOGO_MIN_HEIGHT = 16;
+const LOGO_MAX_HEIGHT = 120;
+const LOGO_GAP = 20;
+const TITLE_MIN_WIDTH = 240; // below this the title block wraps under the logo
+
+function logoHeightOf(report) {
+  const value = Number(report.logoHeight);
+  if (!Number.isFinite(value)) return 40;
+  return Math.round(Math.min(LOGO_MAX_HEIGHT, Math.max(LOGO_MIN_HEIGHT, value)));
+}
+
 /* ------------------------------------------------------------------ */
 /* layout helpers                                                       */
 /* ------------------------------------------------------------------ */
@@ -190,9 +251,10 @@ const countFormat = new Intl.NumberFormat("en-US");
 /* component                                                            */
 /* ------------------------------------------------------------------ */
 
-export default function ReportView({ ref, report, columns, rows, totalRows, generatedAt, className }) {
+export default function ReportView({ ref, report, columns, rows, totalRows, generatedAt, highlights, className }) {
   const settings = report || {};
   const palette = paletteFor(settings);
+  const markColors = highlightColors(settings.theme, palette);
   const cols = Array.isArray(columns) ? columns : [];
   const maxRows = Math.min(REPORT_MAX_ROWS, Math.max(1, Math.round(Number(settings.maxRows) || REPORT_MAX_ROWS)));
   const body = (Array.isArray(rows) ? rows : []).slice(0, maxRows);
@@ -211,7 +273,11 @@ export default function ReportView({ ref, report, columns, rows, totalRows, gene
   const footer = String(settings.footer ?? "").trim();
   const stamp = settings.showDate ? formatStamp(generatedAt) : "";
   const truncated = total > body.length;
-  const hasHeader = Boolean(title || subtitle || stamp);
+  const logo = typeof settings.logo === "string" && LOGO_PATTERN.test(settings.logo) ? settings.logo : "";
+  const logoHeight = logoHeightOf(settings);
+  const hasText = Boolean(title || subtitle || stamp);
+  const hasHeader = hasText || Boolean(logo);
+  const marks = highlightMap(highlights, body.length, cols.length);
 
   const cellBase = {
     boxSizing: "border-box",
@@ -279,52 +345,96 @@ export default function ReportView({ ref, report, columns, rows, totalRows, gene
       />
 
       {hasHeader ? (
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, margin: "0 0 18px" }}>
-          <div style={{ minWidth: 0, flex: "1 1 auto" }}>
-            {title ? (
-              <div
-                role="heading"
-                aria-level={2}
-                style={{
-                  margin: 0,
-                  fontSize: 22,
-                  lineHeight: "28px",
-                  fontWeight: 700,
-                  letterSpacing: "-0.01em",
-                  color: palette.title,
-                  overflowWrap: "anywhere",
-                }}
-              >
-                {title}
-              </div>
-            ) : null}
-            {subtitle ? (
-              <div
-                style={{
-                  margin: title ? "4px 0 0" : 0,
-                  fontSize: 14,
-                  lineHeight: "20px",
-                  color: palette.muted,
-                  overflowWrap: "anywhere",
-                }}
-              >
-                {subtitle}
-              </div>
-            ) : null}
-          </div>
-          {stamp ? (
+        // Wraps: when the logo leaves less than TITLE_MIN_WIDTH for the text, the text moves under it.
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            columnGap: LOGO_GAP,
+            rowGap: 14,
+            margin: "0 0 18px",
+          }}
+        >
+          {logo ? (
+            // eslint-disable-next-line @next/next/no-img-element -- an inline data URL captured by html-to-image; next/image cannot serve it
+            <img
+              src={logo}
+              alt="Logo"
+              draggable={false}
+              style={{
+                display: "block",
+                flex: "0 0 auto",
+                height: logoHeight,
+                width: "auto",
+                maxWidth: frameWidth,
+                margin: 0,
+                padding: 0,
+                border: 0,
+                objectFit: "contain",
+                objectPosition: "left center",
+              }}
+            />
+          ) : null}
+          {hasText ? (
             <div
               style={{
-                flex: "0 0 auto",
-                margin: 0,
-                paddingTop: title ? 7 : 2,
-                fontSize: 12,
-                lineHeight: "17px",
-                color: palette.muted,
-                whiteSpace: "nowrap",
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: 24,
+                flex: `1 1 ${TITLE_MIN_WIDTH}px`,
+                minWidth: 0,
               }}
             >
-              {stamp}
+              <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+                {title ? (
+                  <div
+                    role="heading"
+                    aria-level={2}
+                    style={{
+                      margin: 0,
+                      fontSize: 22,
+                      lineHeight: "28px",
+                      fontWeight: 700,
+                      letterSpacing: "-0.01em",
+                      color: palette.title,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {title}
+                  </div>
+                ) : null}
+                {subtitle ? (
+                  <div
+                    style={{
+                      margin: title ? "4px 0 0" : 0,
+                      fontSize: 14,
+                      lineHeight: "20px",
+                      color: palette.muted,
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {subtitle}
+                  </div>
+                ) : null}
+              </div>
+              {stamp ? (
+                <div
+                  style={{
+                    flex: "0 0 auto",
+                    margin: 0,
+                    // Lines the stamp up with the title's text (28px line) or the subtitle's (20px).
+                    paddingTop: title ? 6 : subtitle ? 2 : 0,
+                    fontSize: 12,
+                    lineHeight: "17px",
+                    color: palette.muted,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {stamp}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -388,14 +498,26 @@ export default function ReportView({ ref, report, columns, rows, totalRows, gene
                           {rowIndex + 1}
                         </td>
                       ) : null}
-                      {cols.map((column, columnIndex) => (
-                        <td
-                          key={column.key ?? columnIndex}
-                          style={{ ...cellBase, backgroundColor, borderTop, textAlign: alignOf(column) }}
-                        >
-                          {row[columnIndex] ?? ""}
-                        </td>
-                      ))}
+                      {cols.map((column, columnIndex) => {
+                        const mark = marks.size ? marks.get(rowIndex * cols.length + columnIndex) : undefined;
+                        const colors = mark && mark.style ? markColors[mark.style] : null;
+                        return (
+                          <td
+                            key={column.key ?? columnIndex}
+                            data-highlight={mark ? mark.style || "bold" : undefined}
+                            style={{
+                              ...cellBase,
+                              backgroundColor: colors ? colors.bg : backgroundColor,
+                              color: colors ? colors.fg : undefined,
+                              fontWeight: mark && mark.bold ? 700 : 400,
+                              borderTop,
+                              textAlign: alignOf(column),
+                            }}
+                          >
+                            {row[columnIndex] ?? ""}
+                          </td>
+                        );
+                      })}
                     </tr>
                   );
                 })
