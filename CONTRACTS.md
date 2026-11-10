@@ -312,3 +312,34 @@ lib/download.js (foundation)  downloadBlob(blob, name), downloadBytes(bytes, nam
 ```
 
 Storage keys (all prefixed `ewb:v1:`): `templates`, `draft`, `theme` (`light` | `dark` | `system`), `aliases`, `history`.
+
+## 11. Integration changes (after the first parallel build)
+
+Additions agreed during integration. They extend the sections above; nothing was removed.
+
+- **Worker start-up**: the worker posts `{ ready: true }` once its handler is attached and
+  `lib/workerClient.js` waits for it before sending requests. Inside the worker, never test
+  `typeof window`: Next.js compiles it to a constant in client bundles. Use `WorkerGlobalScope`.
+- **Group-by overrides**: an enabled override replaces the workflow grouping including its `enabled`
+  flag, so an output can switch grouping off (`resolveOutputConfig`).
+- **Template store**: failed actions return `{ ok: false, error, code }` with
+  `code: 'quota' | 'unavailable' | 'unknown' | 'not-found' | 'invalid'`; new state `loadError`; templates
+  keep `folder`; `renameTemplate(id, "")` and `importTemplates([])` fail with `code: 'invalid'`.
+- **`parseTemplateJson`** success also returns `skipped`: a bundle imports its valid templates and lists
+  the broken ones in `warnings`.
+- **`lib/templates.js`** also exports `MIGRATIONS`, `templateVersion`, `serializeTemplates`, `bundleFileName`,
+  `cleanTemplateName`, `cleanTemplateDescription`, `cleanTemplateFolder`, `columnUsage` and limits;
+  `migrateDefinition(definition, fromVersion?)`.
+- **`lib/storage.js`** also exports `onStorageChange(listener)` (changes from other tabs) and `UNKNOWN_MESSAGE`.
+- **Workflow store**: `setTemplateLink({ id, name })` changes the linked template without touching `dirty`.
+- **`SortEditor` / `GroupByEditor`** accept an optional `issues` prop, like `FilterBuilder`.
+- **`lib/share.js`**: `copyImageToClipboard` also accepts a `Promise<Blob>`; `openWhatsAppWeb()` returns `{ ok, reason }`.
+- **`lib/excel.js`**: `readWorkbook` returns the engine's own sheet structure (not a SheetJS workbook);
+  `zipFiles(files)` and `zipEntryDate()` are exported. The worker module exports `handlers` and
+  `resetDatasets` for tests.
+- **UI kit** additions: `ButtonLink`, tokens `control`, `surface-raised`, `brand-soft-hover`, `danger-hover`,
+  `shadow-raised`, variants `usable-hover:` / `usable-active:`, the `.tap-target` utility. `Segmented`
+  supports arrow keys.
+- `package.json` is `"type": "module"`.
+
+The per-area notes in `notes/agent-*.md` list each area's assumptions in detail.
