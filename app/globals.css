@@ -3,25 +3,53 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
+ * Hover / pressed feedback for the UI kit's own controls:
+ *   usable-hover:bg-surface-2 usable-active:bg-line
+ * - never shows on a disabled or aria-disabled control;
+ * - wrapped in :where(), so it weighs no more than a plain utility: a
+ *   consumer's `hover:bg-*` / `disabled:bg-*` in className always wins over
+ *   the kit's default.
+ * Keep hover before active: the later one wins while pressing.
+ */
+@custom-variant usable-hover {
+  @media (hover: hover) {
+    &:where(:hover:not(:disabled, [aria-disabled="true"])) {
+      @slot;
+    }
+  }
+}
+
+@custom-variant usable-active (&:where(:active:not(:disabled, [aria-disabled="true"])));
+
+/*
  * Design tokens. Components use the semantic Tailwind colours generated below
  * (bg-surface, text-muted, border-line, bg-brand ...) so light and dark mode
  * work without sprinkling dark: variants everywhere.
+ *
+ * Contrast (WCAG AA) is checked for every text/background pair the UI kit uses:
+ * text-fg and text-muted on bg / surface / surface-2 and on every *-soft tint,
+ * brand-fg on brand, danger-fg on danger are all >= 4.5:1; `control` (the
+ * border of inputs and the off-state of switches) is >= 3:1 on surface.
  */
 :root {
   color-scheme: light;
   --bg: #f5f7f6;
   --surface: #ffffff;
   --surface-2: #eef1ef;
+  --surface-raised: #ffffff;
   --line: #dde3df;
   --line-strong: #c2cbc6;
+  --control: #87918b;
   --fg: #16201b;
   --muted: #5b6861;
   --brand: #047857;
   --brand-hover: #065f46;
   --brand-fg: #ffffff;
   --brand-soft: #e2f4ec;
+  --brand-soft-hover: #d1ecdf;
   --brand-soft-fg: #065f46;
   --danger: #b42318;
+  --danger-hover: #912018;
   --danger-fg: #ffffff;
   --danger-soft: #fdecea;
   --warning: #8a5a00;
@@ -29,6 +57,7 @@
   --info: #175cd3;
   --info-soft: #e6effd;
   --shadow: 0 1px 2px rgb(16 24 20 / 0.06), 0 4px 12px rgb(16 24 20 / 0.05);
+  --shadow-raised: 0 2px 6px rgb(16 24 20 / 0.08), 0 12px 32px rgb(16 24 20 / 0.14);
 }
 
 .dark {
@@ -36,16 +65,20 @@
   --bg: #0c110f;
   --surface: #141a17;
   --surface-2: #1b2320;
+  --surface-raised: #2b3732;
   --line: #28322d;
   --line-strong: #3b4841;
+  --control: #6a7871;
   --fg: #e6ece8;
   --muted: #97a49d;
   --brand: #34d399;
   --brand-hover: #6ee7b7;
   --brand-fg: #04261a;
   --brand-soft: #0e2c21;
+  --brand-soft-hover: #14392b;
   --brand-soft-fg: #6ee7b7;
   --danger: #f97066;
+  --danger-hover: #fda29b;
   --danger-fg: #2a0906;
   --danger-soft: #3a1512;
   --warning: #f5c451;
@@ -53,22 +86,27 @@
   --info: #84adff;
   --info-soft: #14244a;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.3);
+  --shadow-raised: 0 2px 6px rgb(0 0 0 / 0.45), 0 12px 32px rgb(0 0 0 / 0.5);
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-raised: var(--surface-raised);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
+  --color-control: var(--control);
   --color-fg: var(--fg);
   --color-muted: var(--muted);
   --color-brand: var(--brand);
   --color-brand-hover: var(--brand-hover);
   --color-brand-fg: var(--brand-fg);
   --color-brand-soft: var(--brand-soft);
+  --color-brand-soft-hover: var(--brand-soft-hover);
   --color-brand-soft-fg: var(--brand-soft-fg);
   --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
   --color-danger-fg: var(--danger-fg);
   --color-danger-soft: var(--danger-soft);
   --color-warning: var(--warning);
@@ -76,18 +114,192 @@
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
   --shadow-card: var(--shadow);
+  --shadow-raised: var(--shadow-raised);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-body {
-  background: var(--bg);
-  color: var(--fg);
+/* Motion: short and quiet. The reduced-motion block at the end switches all of it off. */
+@theme {
+  --animate-toast-in: toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-toast-out: toast-out 150ms ease-in both;
+  --animate-pop-in: pop-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-fade-in: fade-in 180ms ease-out both;
+
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.5rem);
+    }
+  }
+  @keyframes toast-out {
+    to {
+      opacity: 0;
+      transform: translateY(0.25rem);
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(-0.25rem) scale(0.98);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
 }
 
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem) scale(0.98);
+  }
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@layer base {
+  html {
+    /* Keeps the layout from jumping when a modal locks scrolling (classic scrollbars). */
+    scrollbar-gutter: stable;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* The page behind a modal dialog does not scroll. */
+  html:has(dialog:modal) {
+    overflow: hidden;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--brand) 28%, transparent);
+  }
+
+  dialog:modal {
+    animation: dialog-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  dialog:modal::backdrop {
+    animation: fade-in 160ms ease-out;
+  }
+
+  /* Changing theme repaints everything at once instead of fading piece by piece. */
+  html[data-theme-switching] *,
+  html[data-theme-switching] *::before,
+  html[data-theme-switching] *::after {
+    transition: none !important;
+  }
+}
+
+@layer components {
+  /* First focusable element of every page; off-screen until it takes focus. */
+  .skip-link {
+    position: fixed;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 70;
+    padding: 0.625rem 1rem;
+    border-radius: 0.5rem;
+    background: var(--brand);
+    color: var(--brand-fg);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    box-shadow: var(--shadow-raised);
+    transform: translateY(-200%);
+    transition: transform 150ms ease-out;
+  }
+
+  .skip-link:focus {
+    transform: none;
+  }
+
+  /*
+   * Opt-in: a small control (32px icon button, inline link) keeps its compact
+   * look but answers to a 40px touch area on touch screens.
+   *   <IconButton size="sm" className="tap-target" ... />
+   * It makes the element `position: relative` (in this low-priority layer, so
+   * a consumer's absolute / fixed / sticky utility still wins). Do not use it
+   * on controls that scroll underneath a sticky header without a z-index.
+   */
+  .tap-target {
+    position: relative;
+  }
+
+  @media (pointer: coarse) {
+    .tap-target::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: max(100%, 2.5rem);
+      height: max(100%, 2.5rem);
+      transform: translate(-50%, -50%);
+    }
+  }
+
+  /*
+   * Font size of Input / Textarea / Select. 16px on phones stops iOS Safari
+   * from zooming the page on focus; 14px from the sm breakpoint up.
+   */
+  .ui-control {
+    font-size: 1rem;
+    line-height: 1.5rem;
+  }
+
+  @media (min-width: 640px) {
+    .ui-control {
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+    }
+  }
+
+  /* Loading placeholder block: <div class="skeleton h-4 w-32" /> */
+  .skeleton {
+    border-radius: 0.375rem;
+    background: var(--surface-2);
+    animation: skeleton-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+/*
+ * Deliberately outside every layer: no utility (outline-none and friends) can
+ * take the focus ring away from a keyboard user.
+ */
 :focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
+}
+
+/* The skip link lands on the page wrapper; a ring around the whole page is noise. */
+#main-content:focus-visible {
+  outline: none;
+}
+
+/*
+ * Toasts sit above a phone's sticky bottom bar (the wizard's Back / Next)
+ * instead of covering it. Any element can opt in with data-bottom-bar
+ * (or data-bottom-bar="tall" for a two-row bar).
+ */
+@media (max-width: 639px) {
+  body:has([data-bottom-bar]) {
+    --toast-bottom: 4.25rem;
+  }
+
+  body:has([data-bottom-bar="tall"]) {
+    --toast-bottom: 6rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
