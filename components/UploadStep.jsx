@@ -1,12 +1,13 @@
 "use client";
 
-import { History, X } from "lucide-react";
+import { History, Merge, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import DetectedColumns from "@/components/upload/DetectedColumns";
 import Dropzone from "@/components/upload/Dropzone";
 import FileSummary from "@/components/upload/FileSummary";
 import HeaderRowField from "@/components/upload/HeaderRowField";
 import LoadProgress from "@/components/upload/LoadProgress";
+import LookupCard from "@/components/upload/LookupCard";
 import PrivacyNote from "@/components/upload/PrivacyNote";
 import SheetPicker from "@/components/upload/SheetPicker";
 import SourcePreview from "@/components/upload/SourcePreview";
@@ -14,7 +15,7 @@ import { plural } from "@/components/upload/format";
 import { Button, Card, IconButton, Notice, SectionHeader } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { toast } from "@/lib/toast";
-import { useWorkflowStore } from "@/store/useWorkflowStore";
+import { selectLookupNeeded, useWorkflowStore } from "@/store/useWorkflowStore";
 
 const ACCEPT = ".xlsx,.xls,.csv";
 const SAMPLE_URL = "/samples/sample-data.xlsx";
@@ -22,6 +23,9 @@ const SAMPLE_NAME = "sample-data.xlsx";
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 const isFileDrag = (event) => Array.from((event.dataTransfer && event.dataTransfer.types) || []).includes("Files");
+// The lookup card takes its own drops (the second file); the step must not treat them as the main file.
+const inLookupCard = (event) =>
+  typeof Element !== "undefined" && event.target instanceof Element && Boolean(event.target.closest("[data-lookup-drop]"));
 
 /**
  * Step 1: load a spreadsheet. The file is parsed in the worker; this step only
@@ -37,6 +41,7 @@ export default function UploadStep() {
   const progress = useWorkflowStore((state) => state.progress);
   const error = useWorkflowStore((state) => state.error);
   const draftRestored = useWorkflowStore((state) => state.draftRestored);
+  const lookupNeeded = useWorkflowStore(selectLookupNeeded);
   const loadFile = useWorkflowStore((state) => state.loadFile);
   const clearData = useWorkflowStore((state) => state.clearData);
   const dismissDraftNotice = useWorkflowStore((state) => state.dismissDraftNotice);
@@ -91,11 +96,15 @@ export default function UploadStep() {
     onDragEnter: (event) => {
       if (!isFileDrag(event)) return;
       event.preventDefault();
-      setDragging(true);
+      setDragging(!inLookupCard(event));
     },
     onDragOver: (event) => {
       if (!isFileDrag(event)) return;
       event.preventDefault();
+      if (inLookupCard(event)) {
+        setDragging(false);
+        return;
+      }
       event.dataTransfer.dropEffect = "copy";
       setDragging(true);
     },
@@ -107,6 +116,7 @@ export default function UploadStep() {
       if (!isFileDrag(event)) return;
       event.preventDefault();
       setDragging(false);
+      if (inLookupCard(event)) return;
       loadFiles(event.dataTransfer.files);
     },
   };
@@ -120,6 +130,8 @@ export default function UploadStep() {
   // While a sheet is re-read (another sheet or header row) the current table stays visible underneath.
   const showTable = hasSheets && (status === "ready" || (status === "loading" && columns.length > 0));
   const showProgress = Boolean(file) && busy && !showTable;
+  // Also shown after a failed reload, so a merge that broke the table can still be changed or removed.
+  const showLookup = Boolean(file) && hasSheets && (showTable || status === "error");
 
   return (
     <div className="relative flex flex-col gap-5" {...dropHandlers}>
@@ -158,6 +170,12 @@ export default function UploadStep() {
               Dismiss
             </Button>
           </div>
+        </Notice>
+      ) : null}
+
+      {lookupNeeded && !showLookup ? (
+        <Notice tone="info" icon={Merge} title="This workflow also merges a second file">
+          Load the main file first. You can then add the second file in “Merge columns from a second file”.
         </Notice>
       ) : null}
 
@@ -210,6 +228,8 @@ export default function UploadStep() {
               </ul>
             </Notice>
           ) : null}
+
+          {showLookup ? <LookupCard /> : null}
 
           {showTable ? (
             <>

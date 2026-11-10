@@ -1,12 +1,16 @@
 "use client";
 
+import { Merge } from "lucide-react";
 import { useState } from "react";
 import { Badge, Button } from "@/components/ui";
 
 const TYPE_TONES = { text: "neutral", number: "info", date: "brand" };
 const COLLAPSED_COUNT = 24;
 
-/** The columns found in the loaded table, each with its inferred type. */
+/**
+ * The columns found in the loaded table, each with its inferred type. Columns merged in
+ * from the lookup file (`origin === 'lookup'`) carry a "lookup" badge.
+ */
 export default function DetectedColumns({ columns }) {
   const [showAll, setShowAll] = useState(false);
   if (!columns.length) return <p className="text-sm text-muted">No columns were found in this sheet.</p>;
@@ -23,6 +27,12 @@ export default function DetectedColumns({ columns }) {
             <span className="truncate" title={column.name}>
               {column.name}
             </span>
+            {column.origin === "lookup" ? (
+              <Badge tone="neutral" title="Merged in from the second file" className="border border-line-strong">
+                <Merge className="size-3" aria-hidden="true" />
+                lookup
+              </Badge>
+            ) : null}
             <Badge tone={TYPE_TONES[column.type] || "neutral"}>{column.type || "text"}</Badge>
           </li>
         ))}
