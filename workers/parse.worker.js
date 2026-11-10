@@ -182,8 +182,12 @@ export function resetDatasets() {
   datasets.clear();
 }
 
+// Do not test `typeof window` here: Next.js replaces it with a constant ("object") in client bundles,
+// which would compile this whole block away. WorkerGlobalScope exists only inside a worker.
 const isWorker =
-  typeof self !== "undefined" && typeof window === "undefined" && typeof self.postMessage === "function";
+  typeof self !== "undefined" &&
+  typeof WorkerGlobalScope !== "undefined" &&
+  self instanceof WorkerGlobalScope;
 
 if (isWorker) {
   self.onmessage = async (event) => {
@@ -208,4 +212,7 @@ if (isWorker) {
       });
     }
   };
+  // Tell the page the handler is attached. The bundler's worker bootstrap loads this module
+  // asynchronously, so messages posted before this point would otherwise be dropped.
+  self.postMessage({ ready: true });
 }
