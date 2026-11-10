@@ -367,3 +367,23 @@ Shapes are in the `lib/schema.js` header: `Cleaning`, `Lookup`, `ConditionalForm
 - **`ReportView`** gains `highlights?` (same tuples as `runPreview.highlights`) and renders `report.logo`.
 - **Run history**: every successful download calls `logRun` from `lib/history.js`.
 - **Routes**: `/batch` (apply one template to several files), `/history` (run log).
+
+## 13. Extras as built
+
+- **Issue scopes**: `'cleaning'` is new (`id: 'removeDuplicates' | 'fillBlanks'`). Highlight-rule issues use
+  `scope: 'output'` with `id` = the rule id and `outputId` set.
+- **Excel conditional formatting**: each column with rules gets a leading `containsBlanks` rule and every rule has
+  `stopIfTrue`, so blanks never match a comparison and the first matching rule wins, as in the preview. Date values
+  without a time compare whole days; `contains` escapes Excel wildcards. `buildOutputFile` is async.
+- **`runPreview.highlights`** are computed for every output with rules, CSV included (the file itself carries none).
+- **Pivot** without a column field: two columns, labels and the value (which is also the row total).
+- **`DataTable`** also takes `totalsRow` and `totalsColumn` (sticky, bold).
+- **Toasts** accept `action?: { label, onClick }`.
+- **Service worker** (`public/sw.js`, production only): cache-first for hashed `/_next/static/*`, network-first for
+  pages and RSC payloads, stale-while-revalidate for other same-origin GETs. Bump `VERSION` in `public/sw.js` when
+  the caching logic changes. Worker scripts must be answered with a fresh `Response` (Turbopack's worker URL
+  carries a `#params` fragment that a cached response would lose).
+- **Templates**: "Edit details" (name, description, tags, folder) replaces "Rename". Share links are
+  `/templates#template=<payload>`; QR codes were left out because links are 2,000+ characters.
+- **Batch** (`/batch`, `/batch?template=<id>`): runs queue one after another in the worker dataset `"batch"`; the zip
+  is downloaded with a button after the run.

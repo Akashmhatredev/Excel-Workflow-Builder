@@ -69,7 +69,7 @@ const emptyLookup = () => ({
   lookupRowCount: 0,
   lookupStatus: "idle", // 'idle' | 'parsing' | 'ready' | 'error'
   lookupError: null,
-  lookupInfo: null, // { applied, matched, unmatched, addedColumns: string[] } from the last table load
+  lookupInfo: null, // { applied, matched, unmatched, addedColumns: string[], duplicateKeys } from the last table load
 });
 
 function stripFieldFromFilterGroup(group, fieldId) {
