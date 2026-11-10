@@ -3,7 +3,7 @@
 import { Download, Folder, Link2, Tag } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { replaceLocationHash, useLocationHash } from "@/components/templates/locationHash";
-import { reportFailure } from "@/components/templates/notify";
+import { focusOnOpen, reportFailure } from "@/components/templates/notify";
 import { Badge, Button, Modal, Notice } from "@/components/ui";
 import { normalizeName, uniqueName } from "@/lib/schema";
 import { hashWithoutSharePayload, readSharePayload, readSharedTemplate } from "@/lib/shareLink";
@@ -12,7 +12,7 @@ import { useTemplateStore } from "@/store/useTemplateStore";
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
-/** Forget the payload: the dialog closes, and a reload or a bookmark will not offer it again. */
+/** Take the payload out of the address bar (any other part of the hash stays). */
 function clearPayload() {
   replaceLocationHash(hashWithoutSharePayload(window.location.hash));
 }
@@ -61,7 +61,12 @@ function SharedSummary({ template, existingNames }) {
 /**
  * Opens when the page URL carries a shared template ("/templates#template=c.<data>", made by
  * "Copy share link" on a template card). The payload is decoded and validated in the browser,
- * then the user decides whether to import it. The hash is removed afterwards either way.
+ * then the user decides whether to import it.
+ *
+ * As soon as the link has been read, its payload is taken out of the address bar (so a reload or
+ * a bookmark does not offer it again) and the dialog works from the decoded result kept in state.
+ * It must not depend on the hash staying put: Next.js applies history.replaceState through its
+ * router a moment later, and a hash that changes in between can be overwritten.
  * No props; render it once on the Templates page.
  */
 export default function SharedTemplateImport() {
@@ -69,22 +74,25 @@ export default function SharedTemplateImport() {
   const payload = readSharePayload(hash);
   const templates = useTemplateStore((state) => state.templates);
   const existingNames = useMemo(() => templates.map((template) => template.name), [templates]);
-  const [decoded, setDecoded] = useState(null); // { payload, result } for the last payload read
+  const [decoded, setDecoded] = useState(null); // { result } of the last link read, until the dialog closes
 
   useEffect(() => {
     if (!payload) return undefined;
     let cancelled = false;
     readSharedTemplate(payload).then((result) => {
-      if (!cancelled) setDecoded({ payload, result });
+      if (cancelled) return;
+      setDecoded({ result });
+      clearPayload();
     });
     return () => {
       cancelled = true;
     };
   }, [payload]);
 
-  const result = decoded && payload && decoded.payload === payload ? decoded.result : null;
+  const result = decoded ? decoded.result : null;
   const open = Boolean(result);
   const shared = result && result.ok ? result.templates : [];
+  const close = () => setDecoded(null);
 
   const importShared = () => {
     if (!shared.length) return;
@@ -97,18 +105,18 @@ export default function SharedTemplateImport() {
     toast.success(outcome.added.length === 1 ? "Shared template imported" : `Imported ${outcome.added.length} shared templates`, {
       description: `${names} ${outcome.added.length === 1 ? "is" : "are"} now saved in this browser.`,
     });
-    clearPayload();
+    close();
   };
 
   if (result && !result.ok) {
     return (
       <Modal
         open={open}
-        onClose={clearPayload}
+        onClose={close}
         title="This share link could not be opened"
         description="The link may have been cut off when it was sent. Ask for it again, or for the template as a JSON file."
         footer={
-          <Button variant="primary" onClick={clearPayload}>
+          <Button variant="primary" onClick={close}>
             Close
           </Button>
         }
@@ -127,13 +135,13 @@ export default function SharedTemplateImport() {
   return (
     <Modal
       open={open}
-      onClose={clearPayload}
+      onClose={close}
       title={shared.length > 1 ? `Import ${shared.length} shared templates?` : "Import shared template?"}
       description="Someone shared this with you as a link. The template came inside the link itself: nothing was downloaded from a server, and importing saves it in this browser only."
       footer={
         <>
-          <Button onClick={clearPayload}>Not now</Button>
-          <Button variant="primary" icon={Download} onClick={importShared}>
+          <Button onClick={close}>Not now</Button>
+          <Button variant="primary" icon={Download} ref={focusOnOpen} onClick={importShared}>
             {shared.length > 1 ? "Import all" : "Import"}
           </Button>
         </>
