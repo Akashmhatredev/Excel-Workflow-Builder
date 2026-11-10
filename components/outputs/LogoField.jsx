@@ -13,7 +13,7 @@ import NumberInput from "./NumberInput";
  * template), its display height in px, and Remove.
  * `onChange(patch)` receives { logo } or { logoHeight } (merged into output.report by the store).
  */
-export default function LogoField({ logo, logoHeight, onChange }) {
+export default function LogoField({ logo, logoHeight, theme, onChange }) {
   const inputRef = useRef(null);
   const titleId = useId();
   const errorId = useId();
@@ -103,6 +103,9 @@ export default function LogoField({ logo, logoHeight, onChange }) {
       {logo ? (
         <p className="text-xs text-muted">
           Stored as {dataUrlFormat(logo) || "an image"}, {formatBytes(dataUrlBytes(logo))}.
+          {theme === "dark"
+            ? " The dark theme draws the logo on a dark page: a logo with dark text needs its own light background."
+            : ""}
         </p>
       ) : null}
 

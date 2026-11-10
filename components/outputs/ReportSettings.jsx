@@ -240,7 +240,7 @@ export default function ReportSettings({ output, resultColumns, preview, onChang
             </Field>
           </div>
 
-          <LogoField logo={report.logo || ""} logoHeight={report.logoHeight} onChange={onChange} />
+          <LogoField logo={report.logo || ""} logoHeight={report.logoHeight} theme={report.theme} onChange={onChange} />
 
           <div className="grid gap-x-6 gap-y-1 sm:grid-cols-3">
             <Switch

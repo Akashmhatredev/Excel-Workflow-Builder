@@ -105,7 +105,7 @@ function RuleRow({ rule, index, count, columns, columnTypes, problem, onPatch, o
             onChange={(event) => onPatch({ columnKey: event.target.value })}
           >
             <option value="">Choose a column…</option>
-            {!known ? <option value={rule.columnKey}>Column no longer in this output</option> : null}
+            {!known ? <option value={rule.columnKey}>(removed column)</option> : null}
             {columns.map((column) => (
               <option key={column.key} value={column.key}>
                 {column.name || "(unnamed)"}

@@ -183,10 +183,20 @@ export function describeConditionalFormat(rule, resultColumns) {
 
 const EMPTY_MARKS = [];
 
-/** Highlight tuples [row, column, style, bold] that fall inside `rowCount` rows (for a sliced table). */
+/**
+ * Highlight tuples [row, column, style, bold] that fall inside `rowCount` rows (for a sliced table),
+ * keeping only the first tuple of each cell: the first matching rule wins, as in ReportView.
+ */
 export function visibleHighlights(highlights, rowCount) {
   if (!Array.isArray(highlights) || !highlights.length) return EMPTY_MARKS;
-  const inside = highlights.filter((mark) => Array.isArray(mark) && mark[0] < rowCount);
+  const seen = new Set();
+  const inside = highlights.filter((mark) => {
+    if (!Array.isArray(mark) || !(mark[0] < rowCount)) return false;
+    const key = `${mark[0]}:${mark[1]}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   return inside.length === highlights.length ? highlights : inside;
 }
 
