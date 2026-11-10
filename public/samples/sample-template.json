@@ -1,0 +1,428 @@
+{
+  "app": "excel-workflow-builder",
+  "kind": "template",
+  "schemaVersion": 1,
+  "exportedAt": "2026-11-10T09:00:00.000Z",
+  "template": {
+    "id": "tpl_sample_sales_orders",
+    "name": "Sales orders: clean-up and regional summary",
+    "description": "Cleans the raw sales-order dump (names, regions, statuses, dates), adds a line total and builds a sales-by-region summary.",
+    "tags": [
+      "Sales",
+      "Sample"
+    ],
+    "folder": "",
+    "createdAt": "2026-11-10T09:00:00.000Z",
+    "updatedAt": "2026-11-10T09:00:00.000Z",
+    "schemaVersion": 1,
+    "definition": {
+      "schemaVersion": 1,
+      "fields": [
+        {
+          "id": "fld_order_id",
+          "name": "Order ID",
+          "source": {
+            "kind": "column",
+            "column": "Order ID",
+            "template": "",
+            "expression": ""
+          },
+          "transforms": [
+            {
+              "id": "tr_order_id_trim",
+              "type": "trim"
+            },
+            {
+              "id": "tr_order_id_upper",
+              "type": "upper"
+            }
+          ]
+        },
+        {
+          "id": "fld_order_date",
+          "name": "Order Date",
+          "source": {
+            "kind": "column",
+            "column": "Order Date",
+            "template": "",
+            "expression": ""
+          },
+          "transforms": [
+            {
+              "pattern": "DD MMM YYYY",
+              "id": "tr_order_date_format",
+              "type": "dateFormat"
+            }
+          ]
+        },
+        {
+          "id": "fld_customer",
+          "name": "Customer",
+          "source": {
+            "kind": "combine",
+            "column": "",
+            "template": "{Customer First Name} {Customer Last Name}",
+            "expression": ""
+          },
+          "transforms": [
+            {
+              "id": "tr_customer_trim",
+              "type": "trim"
+            },
+            {
+              "id": "tr_customer_title",
+              "type": "title"
+            }
+          ]
+        },
+        {
+          "id": "fld_region",
+          "name": "Region",
+          "source": {
+            "kind": "column",
+            "column": "Region",
+            "template": "",
+            "expression": ""
+          },
+          "transforms": [
+            {
+              "id": "tr_region_trim",
+              "type": "trim"
+            },
+            {
+              "id": "tr_region_title",
+              "type": "title"
+            }
+          ]
+        },
+        {
+          "id": "fld_product",
+          "name": "Product",
+          "source": {
+            "kind": "column",
+            "column": "Product",
+            "template": "",
+            "expression": ""
+          },
+          "transforms": [
+            {
+              "id": "tr_product_trim",
+              "type": "trim"
+            }
+          ]
+        },
+        {
+          "id": "fld_qty",
+          "name": "Qty",
+          "source": {
+            "kind": "column",
+            "column": "Qty",
+            "template": "",
+            "expression": ""
+          },
+          "transforms": []
+        },
+        {
+          "id": "fld_line_total",
+          "name": "Line Total",
+          "source": {
+            "kind": "formula",
+            "column": "",
+            "template": "",
+            "expression": "ROUND({Qty} * {Unit Price} * (1 - {Discount %} / 100), 2)"
+          },
+          "transforms": [
+            {
+              "decimals": 2,
+              "thousands": true,
+              "prefix": "₹",
+              "suffix": "",
+              "id": "tr_line_total_format",
+              "type": "numberFormat"
+            }
+          ]
+        },
+        {
+          "id": "fld_status",
+          "name": "Status",
+          "source": {
+            "kind": "column",
+            "column": "Status",
+            "template": "",
+            "expression": ""
+          },
+          "transforms": [
+            {
+              "id": "tr_status_trim",
+              "type": "trim"
+            },
+            {
+              "id": "tr_status_upper",
+              "type": "upper"
+            }
+          ]
+        },
+        {
+          "id": "fld_sales_rep",
+          "name": "Sales Rep",
+          "source": {
+            "kind": "column",
+            "column": "Sales Rep",
+            "template": "",
+            "expression": ""
+          },
+          "transforms": [
+            {
+              "id": "tr_sales_rep_trim",
+              "type": "trim"
+            },
+            {
+              "id": "tr_sales_rep_title",
+              "type": "title"
+            },
+            {
+              "value": "Unassigned",
+              "id": "tr_sales_rep_default",
+              "type": "default"
+            }
+          ]
+        }
+      ],
+      "filters": {
+        "combinator": "and",
+        "rules": [
+          {
+            "id": "flt_not_cancelled",
+            "target": {
+              "kind": "field",
+              "ref": "fld_status"
+            },
+            "operator": "notEquals",
+            "value": "CANCELLED",
+            "value2": ""
+          }
+        ]
+      },
+      "groupBy": {
+        "enabled": false,
+        "keys": [],
+        "aggregations": []
+      },
+      "sort": [
+        {
+          "id": "srt_order_date",
+          "key": "fld_order_date",
+          "direction": "asc"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "out_order_details",
+          "name": "Order details",
+          "fileType": "xlsx",
+          "sheetName": "Orders",
+          "fieldIds": null,
+          "conditionalFormats": [],
+          "sheetStyle": {
+            "boldHeader": true,
+            "freezeHeader": true,
+            "autoFilter": false
+          },
+          "overrides": {
+            "filters": {
+              "enabled": false,
+              "group": {
+                "combinator": "and",
+                "rules": []
+              }
+            },
+            "sort": {
+              "enabled": false,
+              "rules": []
+            },
+            "groupBy": {
+              "enabled": false,
+              "config": {
+                "enabled": false,
+                "keys": [],
+                "aggregations": []
+              }
+            }
+          },
+          "report": {
+            "enabled": false,
+            "title": "",
+            "subtitle": "",
+            "theme": "light",
+            "brandColor": "#059669",
+            "columnWidths": {},
+            "maxRows": 50,
+            "showRowNumbers": false,
+            "zebra": true,
+            "footer": "",
+            "showDate": false,
+            "logo": "",
+            "logoHeight": 40
+          }
+        },
+        {
+          "id": "out_sales_by_region",
+          "name": "Sales by region",
+          "fileType": "xlsx",
+          "sheetName": "By region",
+          "fieldIds": null,
+          "conditionalFormats": [],
+          "sheetStyle": {
+            "boldHeader": true,
+            "freezeHeader": true,
+            "autoFilter": false
+          },
+          "overrides": {
+            "filters": {
+              "enabled": false,
+              "group": {
+                "combinator": "and",
+                "rules": []
+              }
+            },
+            "sort": {
+              "enabled": true,
+              "rules": [
+                {
+                  "id": "srt_total_sales",
+                  "key": "agg_total_sales",
+                  "direction": "desc"
+                }
+              ]
+            },
+            "groupBy": {
+              "enabled": true,
+              "config": {
+                "enabled": true,
+                "keys": [
+                  "fld_region"
+                ],
+                "aggregations": [
+                  {
+                    "id": "agg_total_sales",
+                    "fieldId": "fld_line_total",
+                    "fn": "sum",
+                    "name": "Total Sales"
+                  },
+                  {
+                    "id": "agg_orders",
+                    "fieldId": "",
+                    "fn": "count",
+                    "name": "Orders"
+                  }
+                ]
+              }
+            }
+          },
+          "report": {
+            "enabled": true,
+            "title": "Sales by region",
+            "subtitle": "Every order except cancelled ones, 2024",
+            "theme": "brand",
+            "brandColor": "#059669",
+            "columnWidths": {},
+            "maxRows": 50,
+            "showRowNumbers": false,
+            "zebra": true,
+            "footer": "Source: sample-data.xlsx",
+            "showDate": true,
+            "logo": "",
+            "logoHeight": 40
+          }
+        }
+      ],
+      "cleaning": {
+        "trimText": false,
+        "removeEmptyRows": false,
+        "removeDuplicates": {
+          "enabled": false,
+          "keys": []
+        },
+        "fillBlanks": {
+          "enabled": false,
+          "mode": "value",
+          "value": "",
+          "fieldIds": []
+        }
+      },
+      "lookup": {
+        "enabled": false,
+        "sheetName": "",
+        "headerRow": 1,
+        "matchColumn": "",
+        "lookupColumn": "",
+        "columns": [],
+        "expectedColumns": []
+      },
+      "source": {
+        "sheetNames": [
+          "Orders"
+        ],
+        "headerRow": 1,
+        "expectedColumns": [
+          {
+            "name": "Order ID",
+            "type": "text"
+          },
+          {
+            "name": "Order Date",
+            "type": "date"
+          },
+          {
+            "name": "Customer First Name",
+            "type": "text"
+          },
+          {
+            "name": "Customer Last Name",
+            "type": "text"
+          },
+          {
+            "name": "Region",
+            "type": "text"
+          },
+          {
+            "name": "City",
+            "type": "text"
+          },
+          {
+            "name": "Product",
+            "type": "text"
+          },
+          {
+            "name": "Category",
+            "type": "text"
+          },
+          {
+            "name": "Qty",
+            "type": "number"
+          },
+          {
+            "name": "Unit Price",
+            "type": "number"
+          },
+          {
+            "name": "Discount %",
+            "type": "number"
+          },
+          {
+            "name": "Status",
+            "type": "text"
+          },
+          {
+            "name": "Sales Rep",
+            "type": "text"
+          },
+          {
+            "name": "Notes",
+            "type": "text"
+          }
+        ]
+      }
+    }
+  }
+}
