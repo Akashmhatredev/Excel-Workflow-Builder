@@ -1,5 +1,6 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import SiteFooter from "@/components/shell/SiteFooter";
+import ServiceWorkerRegistration from "@/components/shell/ServiceWorkerRegistration";
 import SiteHeader from "@/components/shell/SiteHeader";
 import Toaster from "@/components/shell/Toaster";
 import StorageBridge from "@/components/templates/StorageBridge";
@@ -17,6 +18,8 @@ export const metadata = {
   description:
     "Turn a raw Excel or CSV dump into clean output files and shareable report images, entirely in your browser.",
   applicationName: APP_NAME,
+  // Installed to an iPhone home screen: the short name under the icon (app/apple-icon.png).
+  appleWebApp: { title: "Workflow Builder", statusBarStyle: "default" },
   // Spreadsheet values are not phone numbers or addresses: stop iOS from linking them.
   formatDetection: { telephone: false, email: false, address: false },
 };
@@ -56,6 +59,7 @@ export default function RootLayout({ children }) {
         <SiteFooter />
         <Toaster />
         <StorageBridge />
+        <ServiceWorkerRegistration />
       </body>
     </html>
   );
