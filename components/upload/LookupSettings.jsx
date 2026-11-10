@@ -52,7 +52,7 @@ export default function LookupSettings() {
   const keyName = pair.lookupColumn || lookup.lookupColumn;
   const selection = useMemo(() => columnSelection(lookupColumns, keyName, lookup.columns), [lookupColumns, keyName, lookup.columns]);
   const suggestion = useMemo(
-    () => (pair.matchColumn || pair.lookupColumn ? null : suggestKeyPair(mainColumns, lookupColumns)),
+    () => suggestKeyPair(mainColumns, lookupColumns, { matchColumn: pair.matchColumn, lookupColumn: pair.lookupColumn }),
     [pair.matchColumn, pair.lookupColumn, mainColumns, lookupColumns],
   );
   const summary = describeLookupInfo(lookupInfo);

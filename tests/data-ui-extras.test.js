@@ -68,6 +68,16 @@ describe("lookup helpers", () => {
     expect(suggestKeyPair(main, lookup)).toEqual({ matchColumn: "order id", lookupColumn: "Order ID" });
     expect(suggestKeyPair([{ name: "Region" }], lookup)).toEqual({ matchColumn: "Region", lookupColumn: "Region" });
     expect(suggestKeyPair([{ name: "Qty" }], lookup)).toBeNull();
+    expect(suggestKeyPair(main, lookup, { matchColumn: "Region", lookupColumn: "" })).toEqual({
+      matchColumn: "Region",
+      lookupColumn: "Region",
+    });
+    expect(suggestKeyPair(main, lookup, { matchColumn: "", lookupColumn: "Order ID" })).toEqual({
+      matchColumn: "order id",
+      lookupColumn: "Order ID",
+    });
+    expect(suggestKeyPair(main, lookup, { matchColumn: "Qty", lookupColumn: "" })).toBeNull();
+    expect(suggestKeyPair(main, lookup, { matchColumn: "Qty", lookupColumn: "Reason" })).toBeNull();
   });
 
   it("treats [] as every column except the key and never leaves none chosen", () => {

@@ -10,10 +10,29 @@ const KEY_HINT = /(^|[^a-z])(id|code|key|no|number|ref|sku)([^a-z]|$)/i;
 
 /**
  * A key pair worth suggesting: a column whose name appears in both files, preferring
- * names that look like identifiers ("Order ID", "SKU", "Customer No").
+ * names that look like identifiers ("Order ID", "SKU", "Customer No"). When one side is
+ * already chosen (`current`), only the other side is looked up, by the same name.
+ * @param {{ name: string }[]} mainColumns
+ * @param {{ name: string }[]} lookupColumns
+ * @param {{ matchColumn?: string, lookupColumn?: string }} [current]
  * @returns {{ matchColumn: string, lookupColumn: string } | null}
  */
-export function suggestKeyPair(mainColumns, lookupColumns) {
+export function suggestKeyPair(mainColumns, lookupColumns, current = {}) {
+  const { matchColumn = "", lookupColumn = "" } = current || {};
+  if (matchColumn && lookupColumn) return null;
+  const find = (columns, name) => {
+    const wanted = normalizeName(name);
+    const hit = (columns || []).find((column) => normalizeName(column.name) === wanted);
+    return hit ? hit.name : null;
+  };
+  if (matchColumn) {
+    const other = find(lookupColumns, matchColumn);
+    return other ? { matchColumn, lookupColumn: other } : null;
+  }
+  if (lookupColumn) {
+    const other = find(mainColumns, lookupColumn);
+    return other ? { matchColumn: other, lookupColumn } : null;
+  }
   const byName = new Map();
   for (const column of lookupColumns || []) {
     const key = normalizeName(column.name);
