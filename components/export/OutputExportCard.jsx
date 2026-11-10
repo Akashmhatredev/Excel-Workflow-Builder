@@ -11,6 +11,7 @@ import { toast } from "@/lib/toast";
 import { buildOutput } from "@/lib/workerClient";
 import { useWorkflowStore } from "@/store/useWorkflowStore";
 import ReportImagePanel from "./ReportImagePanel";
+import { fileTypeOf, recordRun } from "./runLog";
 import { useOutputSnapshot } from "./useOutputSnapshot";
 
 /**
@@ -45,6 +46,9 @@ export default function OutputExportCard({ output }) {
       });
       const name = result.fileName || fileName;
       downloadBytes(result.bytes, name, result.mime || FILE_TYPES[output.fileType].mime);
+      recordRun("file", [
+        { name: output.name.trim() || name, fileType: fileTypeOf(name) || output.fileType, rowCount: result.rowCount },
+      ]);
       setDownload({ status: "done", rowCount: result.rowCount, fileName: name });
       toast.success(`Downloaded ${name}`, {
         description: Number.isFinite(result.rowCount) ? plural(result.rowCount, "row") : undefined,

@@ -1,13 +1,14 @@
 "use client";
 
-import { ClipboardCopy, Download, ExternalLink, Image as ImageIcon, RefreshCw, Share2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ClipboardCopy, Download, ExternalLink, FileText, Image as ImageIcon, RefreshCw, Share2 } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatBytes, formatCount, plural } from "@/components/outputs/helpers";
 import { useClientValue } from "@/components/outputs/hooks";
 import ReportView from "@/components/ReportView";
 import { Button, Notice, Segmented, Spinner } from "@/components/ui";
-import { downloadBlob } from "@/lib/download";
+import { downloadBlob, downloadBytes } from "@/lib/download";
+import { imageToPdf, pngBlobToJpeg } from "@/lib/pdf";
 import { sanitizeFileName } from "@/lib/schema";
 import {
   WHATSAPP_WEB_URL,
@@ -22,6 +23,7 @@ import {
   shareImage,
 } from "@/lib/share";
 import { toast } from "@/lib/toast";
+import { recordRun } from "./runLog";
 import TextShareForm from "./TextShareForm";
 
 const SCALE_OPTIONS = [
@@ -29,6 +31,11 @@ const SCALE_OPTIONS = [
   { value: 2, label: "2x" },
   { value: 3, label: "3x" },
 ];
+const PAGE_OPTIONS = [
+  { value: "fit", label: "Fit to image" },
+  { value: "a4", label: "A4" },
+];
+const NO_MARKS = [];
 
 const COPY_FAILURES = {
   unsupported: "This browser cannot copy images to the clipboard.",
@@ -101,6 +108,17 @@ function ShareNotice({ notice, paste, onDownload, onRetry }) {
           </div>
         </Notice>
       );
+    case "pdf-failed":
+      return (
+        <Notice tone="error" title="The PDF could not be created">
+          <p>{notice.message} The PNG download still works.</p>
+          <div className="mt-1">
+            <Button variant="secondary" size="sm" icon={Download} className="max-sm:h-10" onClick={onDownload}>
+              Download PNG
+            </Button>
+          </div>
+        </Notice>
+      );
     case "image-failed":
       return (
         <Notice
@@ -121,23 +139,28 @@ function ShareNotice({ notice, paste, onDownload, onRetry }) {
 }
 
 /**
- * The image section of an output with `report.enabled`: scale, PNG download and sharing.
+ * The image section of an output with `report.enabled`: scale, PNG and PDF download and sharing.
  *
- * `snapshot` is the card's useOutputSnapshot() result, read with limit = report.maxRows.
+ * `snapshot` is the card's useOutputSnapshot() result, read with limit = report.maxRows; its
+ * `highlights` (conditional formats) colour the captured cells.
  * A copy of ReportView is rendered off-screen at its natural size and captured with
  * nodeToPngBlob(). The PNG is prepared as soon as the rows arrive (and again when the scale
  * changes), so the click handlers can share or copy it while the user gesture is still valid.
+ * The PDF wraps the same capture: PNG -> JPEG (pngBlobToJpeg) -> one-page PDF (imageToPdf).
+ * Every successful PNG / PDF download is written to the run history.
  */
 export default function ReportImagePanel({ output, snapshot }) {
   const report = output.report;
   const { data, error: dataError, loading: dataLoading, hasData, generatedAt, retry } = snapshot;
 
   const [scale, setScale] = useState(2);
+  const [page, setPage] = useState("fit");
   const [attempt, setAttempt] = useState(0);
   const [image, setImage] = useState(null);
-  const [busy, setBusy] = useState(null); // "download" | "share" | "copy" | null
+  const [busy, setBusy] = useState(null); // "download" | "pdf" | "share" | "copy" | null
   const [notice, setNotice] = useState(null);
   const nodeRef = useRef(null);
+  const pdfHintId = useId();
   const pendingRef = useRef(null); // Promise<Blob> of the capture that is being prepared
 
   const canShare = useClientValue(canShareFiles, false);
@@ -157,15 +180,17 @@ export default function ReportImagePanel({ output, snapshot }) {
     pendingRef.current = promise;
     const stamp = { data, report, scale, attempt };
     const timer = setTimeout(() => {
-      const size = getCaptureSize(node, scale);
       nodeToPngBlob(node, { scale }).then(
         (blob) => {
           settle.resolve(blob);
-          if (!cancelled) setImage({ ...stamp, blob, size, url: URL.createObjectURL(blob), error: null });
+          // Measured after the capture: the logo and the fonts have settled by then.
+          if (!cancelled) {
+            setImage({ ...stamp, blob, size: getCaptureSize(node, scale), url: URL.createObjectURL(blob), error: null });
+          }
         },
         (error) => {
           settle.reject(error);
-          if (!cancelled) setImage({ ...stamp, blob: null, size, url: null, error: error.message });
+          if (!cancelled) setImage({ ...stamp, blob: null, size: getCaptureSize(node, scale), url: null, error: error.message });
         },
       );
     }, 150);
@@ -194,8 +219,13 @@ export default function ReportImagePanel({ output, snapshot }) {
   const preparing = Boolean(data) && !fresh;
 
   const title = report.title.trim() || output.name.trim() || "Report";
-  const fileName = `${sanitizeFileName(output.name, "report")}.png`;
+  const baseName = sanitizeFileName(output.name, "report");
+  const fileName = `${baseName}.png`;
+  const pdfName = `${baseName}.pdf`;
   const showCopy = !(mobile && canShare);
+  const highlights = data ? (data.highlights ?? NO_MARKS) : NO_MARKS;
+  const imageRows = data ? Math.min(data.rows.length, report.maxRows) : 0;
+  const logEntry = (fileType) => [{ name: output.name.trim() || title, fileType, rowCount: imageRows }];
 
   const textLines = [title];
   if (report.subtitle.trim()) textLines.push(report.subtitle.trim());
@@ -220,9 +250,47 @@ export default function ReportImagePanel({ output, snapshot }) {
     try {
       const blob = await currentBlob();
       downloadBlob(blob, fileName);
+      recordRun("image", logEntry("png"));
       toast.success("PNG downloaded", { description: fileName });
     } catch (error) {
       fail(error);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    setBusy("pdf");
+    setNotice(null);
+    let blob;
+    try {
+      blob = await currentBlob();
+    } catch (error) {
+      fail(error);
+      setBusy(null);
+      return;
+    }
+    try {
+      const { jpeg, width, height } = await pngBlobToJpeg(blob);
+      // Image pixels per CSS pixel of the report: the export scale, after any reduction for tall reports.
+      const node = nodeRef.current;
+      const cssWidth = node && node.offsetWidth > 0 ? node.offsetWidth : width / scale;
+      const bytes = imageToPdf({
+        jpeg,
+        width,
+        height,
+        title,
+        pixelRatio: width / cssWidth,
+        page,
+        margin: page === "a4" ? 28 : 0,
+      });
+      downloadBytes(bytes, pdfName, "application/pdf");
+      recordRun("pdf", logEntry("pdf"));
+      toast.success("PDF downloaded", { description: pdfName });
+    } catch (error) {
+      const message = (error && error.message) || "The browser could not convert the image.";
+      setNotice({ kind: "pdf-failed", message });
+      toast.error("Could not create the PDF", { description: message });
     } finally {
       setBusy(null);
     }
@@ -287,11 +355,19 @@ export default function ReportImagePanel({ output, snapshot }) {
             {status}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted" aria-hidden="true">
-            Scale
-          </span>
-          <Segmented label="Image scale" size="sm" options={SCALE_OPTIONS} value={scale} onChange={setScale} />
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted" aria-hidden="true">
+              Scale
+            </span>
+            <Segmented label="Image scale" size="sm" options={SCALE_OPTIONS} value={scale} onChange={setScale} />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted" aria-hidden="true">
+              PDF page
+            </span>
+            <Segmented label="PDF page size" size="sm" options={PAGE_OPTIONS} value={page} onChange={setPage} />
+          </div>
         </div>
       </div>
 
@@ -359,6 +435,16 @@ export default function ReportImagePanel({ output, snapshot }) {
         >
           Download PNG
         </Button>
+        <Button
+          variant="secondary"
+          icon={FileText}
+          loading={busy === "pdf"}
+          disabled={actionsDisabled}
+          onClick={handleDownloadPdf}
+          aria-describedby={pdfHintId}
+        >
+          Download PDF
+        </Button>
         {showCopy && canCopy ? (
           <Button
             variant="secondary"
@@ -374,6 +460,11 @@ export default function ReportImagePanel({ output, snapshot }) {
       </div>
 
       <div className="flex flex-col gap-1 text-sm text-muted">
+        <p id={pdfHintId}>
+          {page === "a4"
+            ? "The PDF puts the whole image on one A4 page, so long tables get small. Fit to image keeps it full size."
+            : "The PDF page is the size of the image. Choose A4 for a printable page."}
+        </p>
         {canShare ? <p>Share image opens your device&apos;s share sheet. Pick WhatsApp there to send the picture.</p> : null}
         {showCopy ? (
           <p>
@@ -414,6 +505,7 @@ export default function ReportImagePanel({ output, snapshot }) {
                 columns={data.columns}
                 rows={data.rows}
                 totalRows={data.totalRows}
+                highlights={highlights}
                 generatedAt={generatedAt}
               />
             </div>,

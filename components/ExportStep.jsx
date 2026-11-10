@@ -3,6 +3,7 @@
 import { FileArchive, FileOutput, RefreshCw, Upload } from "lucide-react";
 import { useState } from "react";
 import OutputExportCard from "@/components/export/OutputExportCard";
+import { fileTypeOf, recordRun } from "@/components/export/runLog";
 import { plural } from "@/components/outputs/helpers";
 import { Button, Card, EmptyState, Notice, SectionHeader } from "@/components/ui";
 import { downloadBytes } from "@/lib/download";
@@ -40,6 +41,16 @@ function ZipCard({ outputCount, hasData }) {
       const name = result.fileName || zipName;
       downloadBytes(result.bytes, name, result.mime || "application/zip");
       const files = Array.isArray(result.files) ? result.files : [];
+      // outputIds = null zips every output in order, so files[i] belongs to outputs[i].
+      const outputs = definition.outputs;
+      recordRun(
+        "zip",
+        files.map((entry, index) => ({
+          name: (outputs.length === files.length && outputs[index].name.trim()) || entry.fileName,
+          fileType: fileTypeOf(entry.fileName),
+          rowCount: entry.rowCount,
+        })),
+      );
       setZip({ status: "done", fileName: name, files });
       toast.success(`Downloaded ${name}`, { description: files.length ? plural(files.length, "file") : undefined });
     } catch (error) {
