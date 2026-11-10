@@ -483,3 +483,152 @@ describe("output files and zips", () => {
     expect(await zip.file("report (2).csv").async("string")).toBe("c,d");
   });
 });
+
+describe("worker handlers", () => {
+  const fakeFile = (bytes, name) => ({
+    name,
+    size: bytes.length,
+    lastModified: 0,
+    arrayBuffer: async () => bytes.slice().buffer,
+  });
+  const progress = [];
+  const ctx = { progress: (p) => progress.push(p) };
+
+  const region = createField({ name: "Region", source: { kind: "column", column: "Region" }, transforms: [createTransform("title")] });
+  const sales = createField({ name: "Sales", source: { kind: "column", column: "Sales" } });
+  const detail = createOutput({ name: "Detail", fileType: "csv" });
+  const summary = createOutput({ name: "Detail", fileType: "csv", fieldIds: [region.id] });
+  const definition = createDefinition({ fields: [region, sales], outputs: [detail, summary] });
+  const workbookBytes = xlsxFrom({
+    Data: [
+      ["Region", "Sales", "When"],
+      ["north", 10, { t: "n", v: 45296, z: "dd/mm/yyyy" }],
+      ["south", 20.5, null],
+      [null, null, null],
+      ["east", 0.1, null],
+    ],
+    Other: [["X"], ["y"]],
+  });
+
+  async function load() {
+    const { handlers, resetDatasets } = await import("@/workers/parse.worker");
+    resetDatasets();
+    await handlers.parseFile({ file: fakeFile(workbookBytes, "sales.xlsx"), datasetId: "main" }, ctx);
+    return handlers;
+  }
+
+  it("parses a file and loads a table with display-ready preview rows", async () => {
+    const handlers = await load();
+    const parsed = await handlers.parseFile({ file: fakeFile(workbookBytes, "sales.xlsx") }, ctx);
+    expect(parsed).toEqual({
+      datasetId: "main",
+      fileName: "sales.xlsx",
+      fileSize: workbookBytes.length,
+      sheets: [
+        { name: "Data", rowCount: 5, colCount: 3 },
+        { name: "Other", rowCount: 2, colCount: 1 },
+      ],
+    });
+    expect(progress.map((p) => p.phase)).toContain("reading");
+    const loaded = await handlers.loadTable({ datasetId: "main", sheetNames: [], headerRow: 1, previewLimit: 2, lookup: null }, ctx);
+    expect(loaded).toEqual({
+      columns: [
+        { name: "Region", type: "text", index: 0 },
+        { name: "Sales", type: "number", index: 1 },
+        { name: "When", type: "date", index: 2 },
+      ],
+      rowCount: 3,
+      previewRows: [
+        ["north", "10", "2024-01-05"],
+        ["south", "20.5", ""],
+      ],
+      sheetNames: ["Data"],
+      headerRow: 1,
+      warnings: [],
+      lookupInfo: null,
+    });
+    expect(await handlers.getRows({ datasetId: "main", offset: 1, limit: 5 })).toEqual({
+      rows: [
+        ["south", "20.5", ""],
+        ["east", "0.1", ""],
+      ],
+      offset: 1,
+      total: 3,
+    });
+  });
+
+  it("previews a workflow with validation and run-time issues", async () => {
+    const handlers = await load();
+    await handlers.loadTable({ datasetId: "main", sheetNames: ["Data"], headerRow: 1, previewLimit: 5 }, ctx);
+    const broken = { ...definition, fields: [...definition.fields, createField({ name: "Ghost", source: { kind: "column", column: "Nope" } })] };
+    const preview = await handlers.runPreview({ datasetId: "main", definition: broken, outputId: null, limit: 2 }, ctx);
+    expect(preview.columns).toEqual([
+      { key: region.id, name: "Region", type: "text" },
+      { key: sales.id, name: "Sales", type: "number" },
+      { key: broken.fields[2].id, name: "Ghost", type: "text" },
+    ]);
+    expect(preview.rows).toEqual([
+      ["North", "10", ""],
+      ["South", "20.5", ""],
+    ]);
+    expect(preview.totalRows).toBe(3);
+    expect(preview.sourceRows).toBe(3);
+    expect(preview.issues.map((issue) => issue.code)).toEqual(["missing-column", "duplicate-output-name", "duplicate-output-name"]);
+    const projected = await handlers.runPreview({ datasetId: "main", definition, outputId: summary.id, limit: 10 }, ctx);
+    expect(projected.rows).toEqual([["North"], ["South"], ["East"]]);
+  });
+
+  it("builds one output and a zip of several", async () => {
+    const handlers = await load();
+    await handlers.loadTable({ datasetId: "main", sheetNames: ["Data"], headerRow: 1 }, ctx);
+    const file = await handlers.buildOutput({ datasetId: "main", definition, outputId: detail.id }, ctx);
+    expect(file.fileName).toBe("Detail.csv");
+    expect(file.rowCount).toBe(3);
+    expect(new TextDecoder().decode(file.bytes)).toBe("Region,Sales\r\nNorth,10\r\nSouth,20.5\r\nEast,0.1\r\n");
+    const zip = await handlers.buildZip({ datasetId: "main", definition, outputIds: null, zipName: "Export: May" }, ctx);
+    expect(zip.fileName).toBe("Export May.zip");
+    expect(zip.mime).toBe("application/zip");
+    expect(zip.files).toEqual([
+      { fileName: "Detail.csv", rowCount: 3 },
+      { fileName: "Detail (2).csv", rowCount: 3 },
+    ]);
+    const entries = await JSZip.loadAsync(zip.bytes);
+    expect(await entries.file("Detail (2).csv").async("string")).toBe("﻿Region\r\nNorth\r\nSouth\r\nEast\r\n");
+    const only = await handlers.buildZip({ datasetId: "main", definition, outputIds: [summary.id], zipName: "x" }, ctx);
+    expect(only.files).toEqual([{ fileName: "Detail.csv", rowCount: 3 }]);
+  });
+
+  it("throws coded errors for missing data and bad requests", async () => {
+    const handlers = await load();
+    const fail = async (promise) => {
+      try {
+        await promise;
+      } catch (error) {
+        return error.code;
+      }
+      return null;
+    };
+    expect(await fail(handlers.runPreview({ datasetId: "main", definition, outputId: null, limit: 5 }, ctx))).toBe("NO_DATA");
+    expect(await fail(handlers.loadTable({ datasetId: "other", sheetNames: [] }, ctx))).toBe("NO_DATA");
+    await handlers.loadTable({ datasetId: "main", sheetNames: [], headerRow: 1 }, ctx);
+    expect(await fail(handlers.runPreview({ datasetId: "main", definition: null, outputId: null }, ctx))).toBe("INVALID_DEFINITION");
+    expect(await fail(handlers.buildOutput({ datasetId: "main", definition, outputId: "out_gone" }, ctx))).toBe("INVALID_DEFINITION");
+    expect(await fail(handlers.buildZip({ datasetId: "main", definition, outputIds: [], zipName: "x" }, ctx))).toBe("INVALID_DEFINITION");
+    expect(await fail(handlers.loadTable({ datasetId: "main", sheetNames: ["Data"], headerRow: 9 }, ctx))).toBe("EMPTY_SHEET");
+    expect(await fail(handlers.runPreview({ datasetId: "main", definition, outputId: null }, ctx))).toBe("NO_DATA");
+    expect(await fail(handlers.parseFile({ file: fakeFile(encode("x"), "x.pdf"), datasetId: "main" }, ctx))).toBe("UNSUPPORTED_FORMAT");
+    expect(await fail(handlers.getRows({ datasetId: "main" }))).toBe("NO_DATA");
+    expect(await handlers.disposeDataset({ datasetId: "main" })).toEqual({ ok: true });
+  });
+
+  it("keeps datasets apart", async () => {
+    const handlers = await load();
+    await handlers.parseFile({ file: fakeFile(encode("Code,Name\nA1,Lookup"), "lookup.csv"), datasetId: "lookup" }, ctx);
+    const lookup = await handlers.loadTable({ datasetId: "lookup", sheetNames: [], headerRow: 1 }, ctx);
+    const main = await handlers.loadTable({ datasetId: "main", sheetNames: [], headerRow: 1 }, ctx);
+    expect(lookup.columns.map((c) => c.name)).toEqual(["Code", "Name"]);
+    expect(main.columns.map((c) => c.name)).toEqual(["Region", "Sales", "When"]);
+    await handlers.disposeDataset({ datasetId: "lookup" });
+    expect((await handlers.getRows({ datasetId: "main", offset: 0, limit: 1 })).total).toBe(3);
+  });
+});
