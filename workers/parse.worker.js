@@ -11,12 +11,17 @@
  * is only installed when the file runs as a worker.
  */
 
+import { highlightCells } from "../lib/conditional.js";
 import { buildOutputFile, buildTable, listSheets, readWorkbook, zipFileName, zipFiles } from "../lib/excel.js";
-import { runPipeline, toDisplayRows } from "../lib/pipeline.js";
+import { joinLookup } from "../lib/lookup.js";
+import { cellIssues, runPipeline, toDisplayRows } from "../lib/pipeline.js";
+import { runPivot } from "../lib/pivot.js";
+import { isLookupConfigured, normalizeDefinition } from "../lib/schema.js";
 import { toText } from "../lib/transforms.js";
 import { validateDefinition } from "../lib/validate.js";
 
 const datasets = new Map(); // datasetId -> { fileName, fileSize, workbook, table, results }
+const LOOKUP_DATASET = "lookup"; // the second file a Lookup joins (see store/useWorkflowStore.js)
 const RESULT_CACHE_SIZE = 2;
 const ZIP_MIME = "application/zip";
 
@@ -91,9 +96,9 @@ export const handlers = {
     return { datasetId: id, fileName: file.name, fileSize: file.size, sheets: listSheets(workbook) };
   },
 
-  async loadTable({ datasetId, sheetNames, headerRow, previewLimit }, ctx) {
-    // `lookup` (a later feature) is accepted and ignored for now: no columns are joined.
-    const dataset = getDataset(datasetId);
+  async loadTable({ datasetId, sheetNames, headerRow, previewLimit, lookup }, ctx) {
+    const id = idOf(datasetId);
+    const dataset = getDataset(id);
     ctx.progress({ phase: "building", percent: 0, message: "Building the table" });
     dataset.table = null;
     dataset.results = [];
@@ -101,6 +106,20 @@ export const handlers = {
       sheetNames: Array.isArray(sheetNames) ? sheetNames : [],
       headerRow: whole(headerRow, 1, 1),
     });
+    // Left-join the table of the "lookup" dataset (never onto itself).
+    let lookupInfo = null;
+    if (id !== LOOKUP_DATASET && lookup && typeof lookup === "object" && lookup.enabled) {
+      if (isLookupConfigured(lookup)) {
+        ctx.progress({ phase: "building", percent: 50, message: "Merging the lookup file" });
+        const source = datasets.get(LOOKUP_DATASET);
+        const joined = joinLookup(table, (source && source.table) || null, normalizeDefinition({ lookup }).lookup);
+        lookupInfo = joined.info;
+        table.warnings.push(...joined.warnings);
+      } else {
+        lookupInfo = { applied: false, matched: 0, unmatched: 0, addedColumns: [], duplicateKeys: 0 };
+        table.warnings.push("Choose the match column and the lookup key column to merge the lookup file.");
+      }
+    }
     dataset.table = table;
     return {
       columns: table.columns,
@@ -109,7 +128,7 @@ export const handlers = {
       sheetNames: table.sheetNames,
       headerRow: table.headerRow,
       warnings: table.warnings,
-      lookupInfo: null,
+      lookupInfo,
     };
   },
 
@@ -123,12 +142,17 @@ export const handlers = {
     checkDefinition(definition);
     const dataset = getTable(datasetId);
     const result = resultFor(dataset, definition, outputId);
+    const count = whole(limit, 20);
+    const output = outputId && Array.isArray(definition.outputs) ? definition.outputs.find((o) => o && o.id === outputId) : null;
     return {
       columns: result.columns.map(({ key, name, type }) => ({ key, name, type })),
-      rows: toDisplayRows(result, whole(limit, 20)),
+      rows: toDisplayRows(result, count),
       totalRows: result.totalRows,
       sourceRows: result.sourceRows,
       issues: [...validateDefinition(definition, dataset.table.columns), ...result.issues],
+      stats: { ...result.stats },
+      cellIssues: cellIssues(result, count),
+      highlights: output ? highlightCells(result, output.conditionalFormats, count) : [],
     };
   },
 
@@ -138,7 +162,7 @@ export const handlers = {
     ctx.progress({ phase: "building", percent: 0, message: "Running the workflow" });
     const result = resultFor(dataset, definition, outputId);
     ctx.progress({ phase: "building", percent: 50, message: "Writing the file" });
-    const file = buildOutputFile(dataset.table, definition, outputId, { result });
+    const file = await buildOutputFile(dataset.table, definition, outputId, { result });
     ctx.progress({ phase: "building", percent: 100 });
     return file;
   },
@@ -158,7 +182,7 @@ export const handlers = {
         message: `Building ${output.name || "output"} (${i + 1} of ${wanted.length})`,
       });
       const result = resultFor(dataset, definition, output.id);
-      files.push(buildOutputFile(dataset.table, definition, output.id, { result }));
+      files.push(await buildOutputFile(dataset.table, definition, output.id, { result }));
     }
     ctx.progress({ phase: "building", percent: Math.round((wanted.length / (wanted.length + 1)) * 100), message: "Zipping" });
     const { bytes, fileNames } = await zipFiles(files);
@@ -169,6 +193,12 @@ export const handlers = {
       bytes,
       files: files.map((file, index) => ({ fileName: fileNames[index], rowCount: file.rowCount })),
     };
+  },
+
+  async runPivot({ datasetId, definition, rowKey, columnKey, valueKey, fn, limit }) {
+    checkDefinition(definition);
+    const dataset = getTable(datasetId);
+    return runPivot(dataset.table, definition, { rowKey, columnKey, valueKey, fn, limit: whole(limit, 200) });
   },
 
   async disposeDataset({ datasetId }) {
