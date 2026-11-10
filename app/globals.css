@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens. Components use the semantic Tailwind colours generated below
+ * (bg-surface, text-muted, border-line, bg-brand ...) so light and dark mode
+ * work without sprinkling dark: variants everywhere.
+ */
+:root {
+  color-scheme: light;
+  --bg: #f5f7f6;
+  --surface: #ffffff;
+  --surface-2: #eef1ef;
+  --line: #dde3df;
+  --line-strong: #c2cbc6;
+  --fg: #16201b;
+  --muted: #5b6861;
+  --brand: #047857;
+  --brand-hover: #065f46;
+  --brand-fg: #ffffff;
+  --brand-soft: #e2f4ec;
+  --brand-soft-fg: #065f46;
+  --danger: #b42318;
+  --danger-fg: #ffffff;
+  --danger-soft: #fdecea;
+  --warning: #8a5a00;
+  --warning-soft: #fff3d1;
+  --info: #175cd3;
+  --info-soft: #e6effd;
+  --shadow: 0 1px 2px rgb(16 24 20 / 0.06), 0 4px 12px rgb(16 24 20 / 0.05);
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #0c110f;
+  --surface: #141a17;
+  --surface-2: #1b2320;
+  --line: #28322d;
+  --line-strong: #3b4841;
+  --fg: #e6ece8;
+  --muted: #97a49d;
+  --brand: #34d399;
+  --brand-hover: #6ee7b7;
+  --brand-fg: #04261a;
+  --brand-soft: #0e2c21;
+  --brand-soft-fg: #6ee7b7;
+  --danger: #f97066;
+  --danger-fg: #2a0906;
+  --danger-soft: #3a1512;
+  --warning: #f5c451;
+  --warning-soft: #33290d;
+  --info: #84adff;
+  --info-soft: #14244a;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.3);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-soft-fg: var(--brand-soft-fg);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --shadow-card: var(--shadow);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
