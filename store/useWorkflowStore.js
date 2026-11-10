@@ -95,8 +95,22 @@ function removeFieldEverywhere(definition, fieldId) {
   collect(definition.groupBy);
   definition.outputs.forEach((output) => collect(output.overrides.groupBy.config));
   const keepSort = (rule) => rule.key !== fieldId && !removedAggregations.has(rule.key);
+  const cleaning = definition.cleaning;
   return {
     ...definition,
+    cleaning: cleaning
+      ? {
+          ...cleaning,
+          removeDuplicates: {
+            ...cleaning.removeDuplicates,
+            keys: (cleaning.removeDuplicates.keys || []).filter((id) => id !== fieldId),
+          },
+          fillBlanks: {
+            ...cleaning.fillBlanks,
+            fieldIds: (cleaning.fillBlanks.fieldIds || []).filter((id) => id !== fieldId),
+          },
+        }
+      : cleaning,
     fields: definition.fields.filter((field) => field.id !== fieldId),
     filters: stripFieldFromFilterGroup(definition.filters, fieldId),
     groupBy: stripFieldFromGroupBy(definition.groupBy, fieldId),
@@ -104,6 +118,9 @@ function removeFieldEverywhere(definition, fieldId) {
     outputs: definition.outputs.map((output) => ({
       ...output,
       fieldIds: Array.isArray(output.fieldIds) ? output.fieldIds.filter((id) => id !== fieldId) : output.fieldIds,
+      conditionalFormats: (output.conditionalFormats || []).filter(
+        (format) => format.columnKey !== fieldId && !removedAggregations.has(format.columnKey),
+      ),
       overrides: {
         filters: {
           ...output.overrides.filters,
