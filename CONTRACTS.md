@@ -343,3 +343,27 @@ Additions agreed during integration. They extend the sections above; nothing was
 - `package.json` is `"type": "module"`.
 
 The per-area notes in `notes/agent-*.md` list each area's assumptions in detail.
+
+## 12. Extras contract (phase 3)
+
+Shapes are in the `lib/schema.js` header: `Cleaning`, `Lookup`, `ConditionalFormat`, `output.sheetStyle`,
+`report.logo` / `report.logoHeight`, template `tags` / `folder`.
+
+- **Pipeline order**: map fields -> filter -> **clean** -> group/aggregate -> sort -> project.
+  Cleaning works on mapped field values: `trimText` (trim + collapse spaces in text values), `removeEmptyRows`
+  (all mapped fields empty), `removeDuplicates` (`keys` = field ids, `[]` = whole row, first row wins),
+  `fillBlanks` (`mode: 'value' | 'previous'`, `fieldIds` `[]` = every field).
+- **`runPreview` result** also has `stats`, `cellIssues` and `highlights` (see `lib/workerClient.js`).
+  Indexes are relative to the returned `rows` / `columns`.
+- **Conditional formats** (`output.conditionalFormats`): `columnKey` is a result column key, `operator` one of
+  `CONDITIONAL_OPERATORS`, `style` a `HIGHLIGHT_STYLES` key. xlsx files get real Excel conditional formatting
+  rules; `sheetStyle` gives a bold header, a frozen header row and an auto filter. CSV carries none of it.
+- **Lookup / merge**: `loadTable({ ..., lookup })` left-joins the table in the `"lookup"` dataset: key match is
+  trimmed and case-insensitive (numbers by value), the first lookup row wins for duplicate keys, the chosen
+  `columns` (`[]` = all except the key) are appended with `origin: 'lookup'` and a ` (lookup)` suffix on a name
+  clash. Result `lookupInfo = { applied, matched, unmatched, addedColumns, duplicateKeys }`.
+- **`runPivot`**: see `lib/workerClient.js`. Runs on the workflow-level rows after cleaning, before grouping.
+- **`DataTable`** gains `cellMarks?: [row, col, tone, bold?][]`, tone `'error' | 'blank' |` a `HIGHLIGHT_STYLES` key.
+- **`ReportView`** gains `highlights?` (same tuples as `runPreview.highlights`) and renders `report.logo`.
+- **Run history**: every successful download calls `logRun` from `lib/history.js`.
+- **Routes**: `/batch` (apply one template to several files), `/history` (run log).
