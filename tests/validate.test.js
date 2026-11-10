@@ -231,7 +231,7 @@ describe("validateDefinition: outputs", () => {
       name: "Summary",
       overrides: {
         filters: { enabled: true, group: { combinator: "and", rules: [badRule] } },
-        groupBy: { enabled: true, config: createGroupBy({ keys: [region.id], aggregations: [badAgg] }) },
+        groupBy: { enabled: true, config: createGroupBy({ enabled: true, keys: [region.id], aggregations: [badAgg] }) },
         sort: { enabled: true, rules: [badSort] },
       },
     });
@@ -252,7 +252,7 @@ describe("validateDefinition: outputs", () => {
     const output = createOutput({
       name: "Grouped",
       fieldIds: ["fld_gone"],
-      overrides: { groupBy: { enabled: true, config: createGroupBy({ keys: [region.id] }) } },
+      overrides: { groupBy: { enabled: true, config: createGroupBy({ enabled: true, keys: [region.id] }) } },
     });
     expect(validateDefinition(createDefinition({ fields: [region], outputs: [output] }), COLUMNS)).toEqual([]);
   });

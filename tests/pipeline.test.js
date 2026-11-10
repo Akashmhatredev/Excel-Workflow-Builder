@@ -299,7 +299,7 @@ describe("runPipeline: grouping", () => {
     const output = createOutput({
       fieldIds: [date.id],
       overrides: {
-        groupBy: { enabled: true, config: createGroupBy({ keys: [status.id], aggregations: [count] }) },
+        groupBy: { enabled: true, config: createGroupBy({ enabled: true, keys: [status.id], aggregations: [count] }) },
         sort: { enabled: true, rules: [createSortRule({ key: count.id, direction: "desc" })] },
       },
     });

@@ -78,3 +78,13 @@ describe("schema helpers", () => {
     expect(sanitizeSheetName("Q1/Q2: [draft] with a very long name that goes on")).toHaveLength(31);
   });
 });
+
+describe("output overrides", () => {
+  it("lets an enabled group-by override switch grouping off for one output", async () => {
+    const { createGroupBy, resolveOutputConfig } = await import("@/lib/schema");
+    const definition = createDefinition({ groupBy: createGroupBy({ enabled: true, keys: ["a"] }) });
+    const output = createOutput({ overrides: { groupBy: { enabled: true, config: createGroupBy({ enabled: false }) } } });
+    expect(resolveOutputConfig(definition, output).groupBy.enabled).toBe(false);
+    expect(resolveOutputConfig(definition, createOutput()).groupBy.enabled).toBe(true);
+  });
+});
