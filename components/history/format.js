@@ -35,11 +35,14 @@ export function formatRows(count) {
   return `${numberFormat.format(count)} ${count === 1 ? "row" : "rows"}`;
 }
 
-/** "Orders" + "xlsx" -> "Orders.xlsx", unless the name already ends with the extension. */
+/**
+ * "Orders" + "xlsx" -> "Orders.xlsx". A name that already looks like a file name
+ * ("jan.xlsx", "Orders.csv") is shown as it is.
+ */
 export function outputLabel(output) {
   const name = (output.name || "").trim() || "Output";
   const type = (output.fileType || "").trim().toLowerCase();
-  if (!type || name.toLowerCase().endsWith(`.${type}`)) return name;
+  if (!type || /\.[a-z0-9]{2,5}$/i.test(name)) return name;
   return `${name}.${type}`;
 }
 
