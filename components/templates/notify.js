@@ -33,6 +33,9 @@ function describe(code, key, detail) {
     if (key === KEYS.templates) {
       return { title: "Browser storage is full", description: `Your templates were not changed. ${advice}` };
     }
+    if (key === KEYS.aliases) {
+      return { title: "Browser storage is full", description: `Your column aliases were not changed. ${advice}` };
+    }
     return { title: "Browser storage is full", description: advice };
   }
   if (code === "unavailable") {

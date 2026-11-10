@@ -16,16 +16,21 @@ import {
   MAX_IMPORT_TEMPLATES,
   MIGRATIONS,
   NAME_MAX_LENGTH,
+  NO_FOLDER,
   TEMPLATE_KIND,
   bundleFileName,
   cleanTemplateName,
   columnUsage,
+  filterTemplates,
+  groupTemplatesByFolder,
   migrateDefinition,
   migrateTemplate,
   parseTemplateJson,
   serializeTemplate,
   serializeTemplates,
   templateFileName,
+  templateFolders,
+  templateTags,
   templateVersion,
 } from "@/lib/templates";
 
@@ -569,6 +574,63 @@ describe("template helpers", () => {
     // a lookup that is switched off, or not fully set up, does not read the column
     expect(columnUsage({ ...definition, lookup: { ...definition.lookup, enabled: false } }, "Region")).toEqual(["Region"]);
     expect(columnUsage({ ...definition, lookup: { ...definition.lookup, lookupColumn: "" } }, "Region")).toEqual(["Region"]);
+  });
+});
+
+describe("tags and folders", () => {
+  const list = () => [
+    { id: "a", name: "Monthly sales", description: "Region summary", tags: ["Sales", "Monthly"], folder: "Finance" },
+    { id: "b", name: "Payroll", description: "", tags: ["HR", "monthly"], folder: "finance" },
+    { id: "c", name: "Stock count", description: "Warehouse export", tags: ["Ops"], folder: "Operations" },
+    { id: "d", name: "Scratch", description: "Try things", tags: [], folder: "" },
+    { id: "e", name: "Old", description: "", tags: "not a list", folder: 42 },
+  ];
+
+  it("lists the folders in use, A-Z, once each whatever their case", () => {
+    expect(templateFolders(list())).toEqual(["Finance", "Operations"]);
+    expect(templateFolders([])).toEqual([]);
+    expect(templateFolders(null)).toEqual([]);
+  });
+
+  it("lists the tags in use with their counts, most used first", () => {
+    expect(templateTags(list())).toEqual([
+      { tag: "Monthly", count: 2 },
+      { tag: "HR", count: 1 },
+      { tag: "Ops", count: 1 },
+      { tag: "Sales", count: 1 },
+    ]);
+  });
+
+  it("filters by folder: all, none, or one folder (case-insensitive)", () => {
+    const ids = (options) => filterTemplates(list(), options).map((template) => template.id);
+    expect(ids({})).toEqual(["a", "b", "c", "d", "e"]);
+    expect(ids({ folder: null })).toEqual(["a", "b", "c", "d", "e"]);
+    expect(ids({ folder: NO_FOLDER })).toEqual(["d", "e"]);
+    expect(ids({ folder: "FINANCE" })).toEqual(["a", "b"]);
+    expect(ids({ folder: "Nowhere" })).toEqual([]);
+  });
+
+  it("filters by tags (every selected tag must be there) and by search, combined", () => {
+    const ids = (options) => filterTemplates(list(), options).map((template) => template.id);
+    expect(ids({ tags: ["monthly"] })).toEqual(["a", "b"]);
+    expect(ids({ tags: ["Monthly", "sales"] })).toEqual(["a"]);
+    expect(ids({ tags: ["Monthly", "Ops"] })).toEqual([]);
+    expect(ids({ query: "  WAREHOUSE " })).toEqual(["c"]);
+    expect(ids({ query: "hr" })).toEqual(["b"]); // tags are searched
+    expect(ids({ query: "operations" })).toEqual(["c"]); // so is the folder
+    expect(ids({ query: "sales", tags: ["monthly"], folder: "finance" })).toEqual(["a"]);
+    expect(ids({ query: "summary payroll" })).toEqual([]); // a match never spans two parts
+  });
+
+  it("groups by folder: named folders A-Z, then the templates without one, order kept inside", () => {
+    const groups = groupTemplatesByFolder([list()[3], ...list()]);
+    expect(groups.map((group) => [group.folder, group.templates.map((template) => template.id)])).toEqual([
+      ["Finance", ["a", "b"]],
+      ["Operations", ["c"]],
+      ["", ["d", "d", "e"]],
+    ]);
+    expect(groupTemplatesByFolder([])).toEqual([]);
+    expect(groupTemplatesByFolder([{ id: "x", folder: "Z" }])).toEqual([{ folder: "Z", templates: [{ id: "x", folder: "Z" }] }]);
   });
 });
 

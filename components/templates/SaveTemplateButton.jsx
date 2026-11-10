@@ -3,12 +3,14 @@
 import { BookmarkPlus, Download } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { focusOnOpen, isStorageFailure } from "@/components/templates/notify";
+import TemplateMetaFields from "@/components/templates/TemplateMetaFields";
 import { Button, Field, Input, Modal, Notice, Textarea } from "@/components/ui";
 import { downloadJSON } from "@/lib/download";
-import { normalizeName, uniqueName } from "@/lib/schema";
+import { normalizeName, normalizeTags, uniqueName } from "@/lib/schema";
 import {
   DESCRIPTION_MAX_LENGTH,
   NAME_MAX_LENGTH,
+  cleanTemplateFolder,
   cleanTemplateName,
   serializeTemplate,
   templateFileName,
@@ -41,6 +43,8 @@ export default function SaveTemplateButton({ size = "md", variant = "secondary",
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [tags, setTags] = useState([]);
+  const [folder, setFolder] = useState("");
   const [nameError, setNameError] = useState("");
   const [failure, setFailure] = useState(null); // { message, code } from the last failed save
 
@@ -57,6 +61,8 @@ export default function SaveTemplateButton({ size = "md", variant = "secondary",
     const workflow = useWorkflowStore.getState();
     setName(existing ? existing.name : workflow.templateName || "");
     setDescription(existing ? existing.description : "");
+    setTags(existing ? existing.tags || [] : []);
+    setFolder(existing ? existing.folder || "" : "");
     setNameError("");
     setFailure(null);
     setOpen(true);
@@ -77,16 +83,10 @@ export default function SaveTemplateButton({ size = "md", variant = "secondary",
     }
     const store = useTemplateStore.getState();
     const updating = intent === "update" && existing;
-    // "Save as new" from a template keeps that template's tags and folder (there is no UI for them yet).
+    const meta = { tags: normalizeTags(tags), folder: cleanTemplateFolder(folder) };
     const result = updating
-      ? store.updateTemplate(existing.id, { name: cleanName, description, definition })
-      : store.saveTemplate({
-          name: newName,
-          description,
-          tags: existing ? existing.tags : [],
-          folder: existing ? existing.folder : "",
-          definition,
-        });
+      ? store.updateTemplate(existing.id, { name: cleanName, description, ...meta, definition })
+      : store.saveTemplate({ name: newName, description, ...meta, definition });
     if (!result.ok) {
       setFailure({ message: result.error || "The template could not be saved.", code: result.code });
       return;
@@ -106,7 +106,13 @@ export default function SaveTemplateButton({ size = "md", variant = "secondary",
   /** When storage refuses the template, the user can still keep it as a file. */
   const downloadInstead = () => {
     try {
-      const template = { name: cleanName || "Untitled template", description, definition: useWorkflowStore.getState().definition };
+      const template = {
+        name: cleanName || "Untitled template",
+        description,
+        tags,
+        folder,
+        definition: useWorkflowStore.getState().definition,
+      };
       const fileName = templateFileName(template);
       downloadJSON(serializeTemplate(template), fileName);
       toast.success("Template downloaded", { description: `${fileName} can be imported on the Templates page.` });
@@ -199,6 +205,8 @@ export default function SaveTemplateButton({ size = "md", variant = "secondary",
               />
             )}
           </Field>
+
+          <TemplateMetaFields tags={tags} onTagsChange={setTags} folder={folder} onFolderChange={setFolder} />
 
           <p className="text-sm text-muted">
             {existing ? `This workflow came from "${existing.name}". ` : ""}
