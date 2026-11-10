@@ -5,6 +5,7 @@ import { useId, useMemo, useState } from "react";
 import { Button, Card, Field, Input, Notice, SectionHeader, Segmented, Spinner, Switch } from "@/components/ui";
 import { DEFAULT_BRAND_COLOR, REPORT_MAX_ROWS, REPORT_THEMES } from "@/lib/schema";
 import { formatCount, plural } from "./helpers";
+import LogoField from "./LogoField";
 import NumberInput from "./NumberInput";
 import ScaledReport from "./ScaledReport";
 
@@ -139,6 +140,8 @@ export default function ReportSettings({ output, resultColumns, preview, onChang
     [data, resultColumns],
   );
   const rows = useMemo(() => (data ? data.rows.slice(0, report.maxRows) : NO_ROWS), [data, report.maxRows]);
+  // Same tuples as the table preview; ReportView ignores the ones past its last row.
+  const highlights = data ? (data.highlights ?? NO_ROWS) : NO_ROWS;
 
   const toggle = (enabled) => {
     // A poster without a title looks unfinished: start from the output's name.
@@ -161,7 +164,7 @@ export default function ReportSettings({ output, resultColumns, preview, onChang
       <SectionHeader
         as="h4"
         title="Report image"
-        description="A picture of this table that you can download as a PNG or share on WhatsApp from the Export step."
+        description="A picture of this table that you can download as a PNG or a PDF, or share on WhatsApp, from the Export step."
       />
       <Switch
         className="mt-4 rounded-lg border border-line p-3 sm:p-4"
@@ -237,6 +240,8 @@ export default function ReportSettings({ output, resultColumns, preview, onChang
             </Field>
           </div>
 
+          <LogoField logo={report.logo || ""} logoHeight={report.logoHeight} onChange={onChange} />
+
           <div className="grid gap-x-6 gap-y-1 sm:grid-cols-3">
             <Switch
               className="min-h-11"
@@ -290,6 +295,7 @@ export default function ReportSettings({ output, resultColumns, preview, onChang
                 columns={columns}
                 rows={rows}
                 totalRows={data ? data.totalRows : undefined}
+                highlights={highlights}
                 generatedAt={generatedAt}
               />
             )}
