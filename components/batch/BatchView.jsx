@@ -357,15 +357,11 @@ export default function BatchView() {
         <SectionHeader
           title={<span id="batch-run-heading">3. Run</span>}
           actions={
-            running ? (
-              <Button icon={Square} onClick={stop}>
-                Stop
-              </Button>
-            ) : (
-              <Button variant="primary" icon={Play} disabled={!canRun} onClick={start}>
-                {queue.length ? `Run on ${plural(queue.length, "file")}` : "Run batch"}
-              </Button>
-            )
+            // Stop lives in the progress panel, not here: a click meant for Stop that lands just as the
+            // run ends must never start the batch again.
+            <Button variant="primary" icon={Play} loading={running} disabled={!canRun} onClick={start}>
+              {running ? "Running" : queue.length ? `Run on ${plural(queue.length, "file")}` : "Run batch"}
+            </Button>
           }
         />
         <p className="flex items-start gap-2 text-sm text-muted">
@@ -377,12 +373,17 @@ export default function BatchView() {
         </p>
 
         {running && progress ? (
-          <div className="flex flex-col gap-2">
-            <p role="status" className="text-sm font-medium text-fg">
-              {progress.phase === "zipping"
-                ? `Zipping the results of ${plural(progress.total, "file")}`
-                : `File ${Math.min(progress.index + 1, progress.total)} of ${progress.total}: ${progress.fileName}`}
-            </p>
+          <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p role="status" className="min-w-0 text-sm font-medium break-words text-fg">
+                {progress.phase === "zipping"
+                  ? `Zipping the results of ${plural(progress.total, "file")}`
+                  : `File ${Math.min(progress.index + 1, progress.total)} of ${progress.total}: ${progress.fileName}`}
+              </p>
+              <Button size="sm" icon={Square} className="tap-target" disabled={progress.phase === "zipping"} onClick={stop}>
+                Stop
+              </Button>
+            </div>
             <div
               role="progressbar"
               aria-label="Batch progress"
