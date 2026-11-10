@@ -13,11 +13,14 @@
 
 import { highlightCells } from "../lib/conditional.js";
 import { buildOutputFile, buildTable, listSheets, readWorkbook, zipFileName, zipFiles } from "../lib/excel.js";
+import { joinLookup } from "../lib/lookup.js";
 import { cellIssues, runPipeline, toDisplayRows } from "../lib/pipeline.js";
+import { isLookupConfigured, normalizeDefinition } from "../lib/schema.js";
 import { toText } from "../lib/transforms.js";
 import { validateDefinition } from "../lib/validate.js";
 
 const datasets = new Map(); // datasetId -> { fileName, fileSize, workbook, table, results }
+const LOOKUP_DATASET = "lookup"; // the second file a Lookup joins (see store/useWorkflowStore.js)
 const RESULT_CACHE_SIZE = 2;
 const ZIP_MIME = "application/zip";
 
@@ -92,9 +95,9 @@ export const handlers = {
     return { datasetId: id, fileName: file.name, fileSize: file.size, sheets: listSheets(workbook) };
   },
 
-  async loadTable({ datasetId, sheetNames, headerRow, previewLimit }, ctx) {
-    // `lookup` (a later feature) is accepted and ignored for now: no columns are joined.
-    const dataset = getDataset(datasetId);
+  async loadTable({ datasetId, sheetNames, headerRow, previewLimit, lookup }, ctx) {
+    const id = idOf(datasetId);
+    const dataset = getDataset(id);
     ctx.progress({ phase: "building", percent: 0, message: "Building the table" });
     dataset.table = null;
     dataset.results = [];
@@ -102,6 +105,20 @@ export const handlers = {
       sheetNames: Array.isArray(sheetNames) ? sheetNames : [],
       headerRow: whole(headerRow, 1, 1),
     });
+    // Left-join the table of the "lookup" dataset (never onto itself).
+    let lookupInfo = null;
+    if (id !== LOOKUP_DATASET && lookup && typeof lookup === "object" && lookup.enabled) {
+      if (isLookupConfigured(lookup)) {
+        ctx.progress({ phase: "building", percent: 50, message: "Merging the lookup file" });
+        const source = datasets.get(LOOKUP_DATASET);
+        const joined = joinLookup(table, (source && source.table) || null, normalizeDefinition({ lookup }).lookup);
+        lookupInfo = joined.info;
+        table.warnings.push(...joined.warnings);
+      } else {
+        lookupInfo = { applied: false, matched: 0, unmatched: 0, addedColumns: [], duplicateKeys: 0 };
+        table.warnings.push("Choose the match column and the lookup key column to merge the lookup file.");
+      }
+    }
     dataset.table = table;
     return {
       columns: table.columns,
@@ -110,7 +127,7 @@ export const handlers = {
       sheetNames: table.sheetNames,
       headerRow: table.headerRow,
       warnings: table.warnings,
-      lookupInfo: null,
+      lookupInfo,
     };
   },
 
