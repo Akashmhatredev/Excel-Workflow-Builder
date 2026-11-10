@@ -7,6 +7,20 @@ const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   // Pin the workspace root to this folder so a parent lockfile is never picked up by mistake.
   outputFileTracingRoot: projectRoot,
+  // The service worker (public/sw.js), as the Next.js PWA guide recommends: always revalidated,
+  // so a new release is noticed on the next visit, and only allowed to load same-origin code.
+  async headers() {
+    return [
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self'" },
+        ],
+      },
+    ];
+  },
   turbopack: {
     root: projectRoot,
     rules: {

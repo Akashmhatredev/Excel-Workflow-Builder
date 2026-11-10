@@ -312,3 +312,78 @@ lib/download.js (foundation)  downloadBlob(blob, name), downloadBytes(bytes, nam
 ```
 
 Storage keys (all prefixed `ewb:v1:`): `templates`, `draft`, `theme` (`light` | `dark` | `system`), `aliases`, `history`.
+
+## 11. Integration changes (after the first parallel build)
+
+Additions agreed during integration. They extend the sections above; nothing was removed.
+
+- **Worker start-up**: the worker posts `{ ready: true }` once its handler is attached and
+  `lib/workerClient.js` waits for it before sending requests. Inside the worker, never test
+  `typeof window`: Next.js compiles it to a constant in client bundles. Use `WorkerGlobalScope`.
+- **Group-by overrides**: an enabled override replaces the workflow grouping including its `enabled`
+  flag, so an output can switch grouping off (`resolveOutputConfig`).
+- **Template store**: failed actions return `{ ok: false, error, code }` with
+  `code: 'quota' | 'unavailable' | 'unknown' | 'not-found' | 'invalid'`; new state `loadError`; templates
+  keep `folder`; `renameTemplate(id, "")` and `importTemplates([])` fail with `code: 'invalid'`.
+- **`parseTemplateJson`** success also returns `skipped`: a bundle imports its valid templates and lists
+  the broken ones in `warnings`.
+- **`lib/templates.js`** also exports `MIGRATIONS`, `templateVersion`, `serializeTemplates`, `bundleFileName`,
+  `cleanTemplateName`, `cleanTemplateDescription`, `cleanTemplateFolder`, `columnUsage` and limits;
+  `migrateDefinition(definition, fromVersion?)`.
+- **`lib/storage.js`** also exports `onStorageChange(listener)` (changes from other tabs) and `UNKNOWN_MESSAGE`.
+- **Workflow store**: `setTemplateLink({ id, name })` changes the linked template without touching `dirty`.
+- **`SortEditor` / `GroupByEditor`** accept an optional `issues` prop, like `FilterBuilder`.
+- **`lib/share.js`**: `copyImageToClipboard` also accepts a `Promise<Blob>`; `openWhatsAppWeb()` returns `{ ok, reason }`.
+- **`lib/excel.js`**: `readWorkbook` returns the engine's own sheet structure (not a SheetJS workbook);
+  `zipFiles(files)` and `zipEntryDate()` are exported. The worker module exports `handlers` and
+  `resetDatasets` for tests.
+- **UI kit** additions: `ButtonLink`, tokens `control`, `surface-raised`, `brand-soft-hover`, `danger-hover`,
+  `shadow-raised`, variants `usable-hover:` / `usable-active:`, the `.tap-target` utility. `Segmented`
+  supports arrow keys.
+- `package.json` is `"type": "module"`.
+
+The per-area notes in `notes/agent-*.md` list each area's assumptions in detail.
+
+## 12. Extras contract (phase 3)
+
+Shapes are in the `lib/schema.js` header: `Cleaning`, `Lookup`, `ConditionalFormat`, `output.sheetStyle`,
+`report.logo` / `report.logoHeight`, template `tags` / `folder`.
+
+- **Pipeline order**: map fields -> filter -> **clean** -> group/aggregate -> sort -> project.
+  Cleaning works on mapped field values: `trimText` (trim + collapse spaces in text values), `removeEmptyRows`
+  (all mapped fields empty), `removeDuplicates` (`keys` = field ids, `[]` = whole row, first row wins),
+  `fillBlanks` (`mode: 'value' | 'previous'`, `fieldIds` `[]` = every field).
+- **`runPreview` result** also has `stats`, `cellIssues` and `highlights` (see `lib/workerClient.js`).
+  Indexes are relative to the returned `rows` / `columns`.
+- **Conditional formats** (`output.conditionalFormats`): `columnKey` is a result column key, `operator` one of
+  `CONDITIONAL_OPERATORS`, `style` a `HIGHLIGHT_STYLES` key. xlsx files get real Excel conditional formatting
+  rules; `sheetStyle` gives a bold header, a frozen header row and an auto filter. CSV carries none of it.
+- **Lookup / merge**: `loadTable({ ..., lookup })` left-joins the table in the `"lookup"` dataset: key match is
+  trimmed and case-insensitive (numbers by value), the first lookup row wins for duplicate keys, the chosen
+  `columns` (`[]` = all except the key) are appended with `origin: 'lookup'` and a ` (lookup)` suffix on a name
+  clash. Result `lookupInfo = { applied, matched, unmatched, addedColumns, duplicateKeys }`.
+- **`runPivot`**: see `lib/workerClient.js`. Runs on the workflow-level rows after cleaning, before grouping.
+- **`DataTable`** gains `cellMarks?: [row, col, tone, bold?][]`, tone `'error' | 'blank' |` a `HIGHLIGHT_STYLES` key.
+- **`ReportView`** gains `highlights?` (same tuples as `runPreview.highlights`) and renders `report.logo`.
+- **Run history**: every successful download calls `logRun` from `lib/history.js`.
+- **Routes**: `/batch` (apply one template to several files), `/history` (run log).
+
+## 13. Extras as built
+
+- **Issue scopes**: `'cleaning'` is new (`id: 'removeDuplicates' | 'fillBlanks'`). Highlight-rule issues use
+  `scope: 'output'` with `id` = the rule id and `outputId` set.
+- **Excel conditional formatting**: each column with rules gets a leading `containsBlanks` rule and every rule has
+  `stopIfTrue`, so blanks never match a comparison and the first matching rule wins, as in the preview. Date values
+  without a time compare whole days; `contains` escapes Excel wildcards. `buildOutputFile` is async.
+- **`runPreview.highlights`** are computed for every output with rules, CSV included (the file itself carries none).
+- **Pivot** without a column field: two columns, labels and the value (which is also the row total).
+- **`DataTable`** also takes `totalsRow` and `totalsColumn` (sticky, bold).
+- **Toasts** accept `action?: { label, onClick }`.
+- **Service worker** (`public/sw.js`, production only): cache-first for hashed `/_next/static/*`, network-first for
+  pages and RSC payloads, stale-while-revalidate for other same-origin GETs. Bump `VERSION` in `public/sw.js` when
+  the caching logic changes. Worker scripts must be answered with a fresh `Response` (Turbopack's worker URL
+  carries a `#params` fragment that a cached response would lose).
+- **Templates**: "Edit details" (name, description, tags, folder) replaces "Rename". Share links are
+  `/templates#template=<payload>`; QR codes were left out because links are 2,000+ characters.
+- **Batch** (`/batch`, `/batch?template=<id>`): runs queue one after another in the worker dataset `"batch"`; the zip
+  is downloaded with a button after the run.

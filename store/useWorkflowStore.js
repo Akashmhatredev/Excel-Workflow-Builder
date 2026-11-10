@@ -69,7 +69,7 @@ const emptyLookup = () => ({
   lookupRowCount: 0,
   lookupStatus: "idle", // 'idle' | 'parsing' | 'ready' | 'error'
   lookupError: null,
-  lookupInfo: null, // { applied, matched, unmatched, addedColumns: string[] } from the last table load
+  lookupInfo: null, // { applied, matched, unmatched, addedColumns: string[], duplicateKeys } from the last table load
 });
 
 function stripFieldFromFilterGroup(group, fieldId) {
@@ -95,8 +95,22 @@ function removeFieldEverywhere(definition, fieldId) {
   collect(definition.groupBy);
   definition.outputs.forEach((output) => collect(output.overrides.groupBy.config));
   const keepSort = (rule) => rule.key !== fieldId && !removedAggregations.has(rule.key);
+  const cleaning = definition.cleaning;
   return {
     ...definition,
+    cleaning: cleaning
+      ? {
+          ...cleaning,
+          removeDuplicates: {
+            ...cleaning.removeDuplicates,
+            keys: (cleaning.removeDuplicates.keys || []).filter((id) => id !== fieldId),
+          },
+          fillBlanks: {
+            ...cleaning.fillBlanks,
+            fieldIds: (cleaning.fillBlanks.fieldIds || []).filter((id) => id !== fieldId),
+          },
+        }
+      : cleaning,
     fields: definition.fields.filter((field) => field.id !== fieldId),
     filters: stripFieldFromFilterGroup(definition.filters, fieldId),
     groupBy: stripFieldFromGroupBy(definition.groupBy, fieldId),
@@ -104,6 +118,9 @@ function removeFieldEverywhere(definition, fieldId) {
     outputs: definition.outputs.map((output) => ({
       ...output,
       fieldIds: Array.isArray(output.fieldIds) ? output.fieldIds.filter((id) => id !== fieldId) : output.fieldIds,
+      conditionalFormats: (output.conditionalFormats || []).filter(
+        (format) => format.columnKey !== fieldId && !removedAggregations.has(format.columnKey),
+      ),
       overrides: {
         filters: {
           ...output.overrides.filters,
@@ -687,6 +704,9 @@ export const useWorkflowStore = create((set, get) => {
 
     /** Call after saving the current definition as a template. */
     markTemplateSaved: ({ id, name }) => set({ templateId: id || null, templateName: name || "", dirty: false }),
+
+    /** Change which template this workflow is linked to (after a rename or delete) without touching `dirty`. */
+    setTemplateLink: ({ id, name }) => set({ templateId: id || null, templateName: name || "" }),
 
     /** Start over with an empty definition. keepData=false also forgets the loaded file. */
     resetWorkflow: ({ keepData = true } = {}) => {
