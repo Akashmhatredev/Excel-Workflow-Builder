@@ -11,8 +11,9 @@
  * is only installed when the file runs as a worker.
  */
 
+import { highlightCells } from "../lib/conditional.js";
 import { buildOutputFile, buildTable, listSheets, readWorkbook, zipFileName, zipFiles } from "../lib/excel.js";
-import { runPipeline, toDisplayRows } from "../lib/pipeline.js";
+import { cellIssues, runPipeline, toDisplayRows } from "../lib/pipeline.js";
 import { toText } from "../lib/transforms.js";
 import { validateDefinition } from "../lib/validate.js";
 
@@ -123,13 +124,17 @@ export const handlers = {
     checkDefinition(definition);
     const dataset = getTable(datasetId);
     const result = resultFor(dataset, definition, outputId);
+    const count = whole(limit, 20);
+    const output = outputId && Array.isArray(definition.outputs) ? definition.outputs.find((o) => o && o.id === outputId) : null;
     return {
       columns: result.columns.map(({ key, name, type }) => ({ key, name, type })),
-      rows: toDisplayRows(result, whole(limit, 20)),
+      rows: toDisplayRows(result, count),
       totalRows: result.totalRows,
       sourceRows: result.sourceRows,
       issues: [...validateDefinition(definition, dataset.table.columns), ...result.issues],
       stats: { ...result.stats },
+      cellIssues: cellIssues(result, count),
+      highlights: output ? highlightCells(result, output.conditionalFormats, count) : [],
     };
   },
 

@@ -574,8 +574,16 @@ describe("worker handlers", () => {
     expect(preview.totalRows).toBe(3);
     expect(preview.sourceRows).toBe(3);
     expect(preview.issues.map((issue) => issue.code)).toEqual(["missing-column", "duplicate-output-name", "duplicate-output-name"]);
+    expect(preview.stats).toEqual({ emptyRowsRemoved: 0, duplicatesRemoved: 0, blanksFilled: 0 });
+    expect(preview.cellIssues).toEqual([
+      [0, 2, "error"],
+      [1, 2, "error"],
+    ]);
+    expect(preview.highlights).toEqual([]);
     const projected = await handlers.runPreview({ datasetId: "main", definition, outputId: summary.id, limit: 10 }, ctx);
     expect(projected.rows).toEqual([["North"], ["South"], ["East"]]);
+    expect(projected.cellIssues).toEqual([]);
+    expect(projected.highlights).toEqual([]);
   });
 
   it("builds one output and a zip of several", async () => {
