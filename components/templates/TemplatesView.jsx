@@ -1,22 +1,38 @@
 "use client";
 
-import { FolderDown, LayoutTemplate, Plus, Search, SearchX, Sparkles, Upload } from "lucide-react";
+import { Check, Folder, FolderDown, LayoutTemplate, Plus, Search, SearchX, Sparkles, Tag, Upload, X } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import TemplateCard from "@/components/TemplateCard";
+import AliasManager from "@/components/templates/AliasManager";
 import { importTemplateFiles, importTemplateText } from "@/components/templates/importer";
-import { Button, Card, EmptyState, Field, Input, Modal, Notice } from "@/components/ui";
+import SharedTemplateImport from "@/components/templates/SharedTemplateImport";
+import { Button, Card, EmptyState, Field, Input, Modal, Notice, Select } from "@/components/ui";
 import { downloadJSON } from "@/lib/download";
 import { normalizeName } from "@/lib/schema";
 import { storageUsage } from "@/lib/storage";
-import { bundleFileName, serializeTemplates } from "@/lib/templates";
+import {
+  NO_FOLDER,
+  bundleFileName,
+  filterTemplates,
+  groupTemplatesByFolder,
+  serializeTemplates,
+  templateFolders,
+  templateTags,
+} from "@/lib/templates";
 import { toast } from "@/lib/toast";
 import { useTemplateStore } from "@/store/useTemplateStore";
 
 const SAMPLE_URL = "/samples/sample-template.json";
 const SEARCH_FROM = 4; // show the search box from this many templates
 
+/** <select> values of the folder filter. A folder's own value is FOLDER_PREFIX + its name. */
+const ALL_FOLDERS = "all";
+const LOOSE_FOLDER = "none";
+const FOLDER_PREFIX = "folder:";
+
 const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const sameText = (a, b) => a.toLowerCase() === b.toLowerCase();
 
 function updatedTime(template) {
   const time = Date.parse(template.updatedAt);
@@ -69,28 +85,104 @@ function LoadingGrid() {
   );
 }
 
-/** The Templates page (owner: Agent D): browse, search, import and export saved templates. */
+/** A grid of cards. */
+function CardGrid({ templates, showFolder }) {
+  return (
+    <ul className="grid gap-4 md:grid-cols-2">
+      {templates.map((template) => (
+        <li key={template.id} className="grid min-w-0">
+          <TemplateCard template={template} showFolder={showFolder} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** One folder's heading and cards (folder "" = templates without a folder). */
+function FolderGroup({ folder, templates }) {
+  const headingId = useId();
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-3">
+      <h2 id={headingId} className="flex min-w-0 items-center gap-2 text-sm font-semibold text-fg">
+        <Folder className="size-4 shrink-0 text-muted" aria-hidden="true" />
+        <span className="truncate">{folder || "No folder"}</span>
+        <span className="font-normal text-muted">({templates.length})</span>
+      </h2>
+      <CardGrid templates={templates} showFolder={false} />
+    </section>
+  );
+}
+
+/** The Templates page (owner: Agent D / X4): browse, search, filter, import, export and share saved templates. */
 export default function TemplatesView() {
   const templates = useTemplateStore((state) => state.templates);
   const hasHydrated = useTemplateStore((state) => state.hasHydrated);
   const fileInputRef = useRef(null);
 
   const [query, setQuery] = useState("");
+  const [folderChoice, setFolderChoice] = useState(null); // null = all, "" = no folder, otherwise a folder name
+  const [tagChoice, setTagChoice] = useState([]); // selected tags; a template must carry all of them
   const [importing, setImporting] = useState(false);
   const [loadingSample, setLoadingSample] = useState(false);
   const [report, setReport] = useState(null); // { added, problems } shown in the import dialog
 
   const sorted = useMemo(() => [...templates].sort((a, b) => updatedTime(b) - updatedTime(a)), [templates]);
+  const folders = useMemo(() => templateFolders(templates), [templates]);
+  const tagStats = useMemo(() => templateTags(templates), [templates]);
+  const folderCounts = useMemo(() => {
+    const counts = new Map();
+    for (const template of templates) {
+      const key = (template.folder || "").toLowerCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  }, [templates]);
+  const looseCount = folderCounts.get("") || 0;
+
+  // A choice that no longer exists (its last template was deleted or moved) quietly falls back to "all".
+  const activeFolder =
+    folderChoice === null
+      ? null
+      : folderChoice === NO_FOLDER
+        ? looseCount && folders.length
+          ? NO_FOLDER
+          : null
+        : folders.find((name) => sameText(name, folderChoice)) ?? null;
+  const activeTags = useMemo(
+    () => tagStats.map((entry) => entry.tag).filter((tag) => tagChoice.some((chosen) => sameText(chosen, tag))),
+    [tagStats, tagChoice],
+  );
   const needle = normalizeName(query);
-  const visible = useMemo(() => {
-    if (!needle) return sorted;
-    return sorted.filter((template) =>
-      normalizeName(`${template.name} ${template.description} ${(template.tags || []).join(" ")}`).includes(needle),
-    );
-  }, [sorted, needle]);
+  const visible = useMemo(
+    () => filterTemplates(sorted, { query: needle, folder: activeFolder, tags: activeTags }),
+    [sorted, needle, activeFolder, activeTags],
+  );
+  const grouped = activeFolder === null && folders.length > 0;
+  const groups = useMemo(() => (grouped ? groupTemplatesByFolder(visible) : []), [grouped, visible]);
   const usage = useMemo(() => (hasHydrated && templates.length ? storageUsage() : 0), [hasHydrated, templates]);
 
+  const filtering = Boolean(needle) || activeFolder !== null || activeTags.length > 0;
   const showSearch = templates.length >= SEARCH_FROM || Boolean(query);
+  const showFolderFilter = folders.length > 0;
+  const showTagFilter = tagStats.length > 0 && templates.length > 1;
+  const showToolbar = hasHydrated && templates.length > 0 && (showSearch || showFolderFilter || showTagFilter || filtering);
+
+  const folderValue =
+    activeFolder === null ? ALL_FOLDERS : activeFolder === NO_FOLDER ? LOOSE_FOLDER : `${FOLDER_PREFIX}${activeFolder}`;
+  const onFolderSelect = (value) => {
+    if (value === ALL_FOLDERS) setFolderChoice(null);
+    else if (value === LOOSE_FOLDER) setFolderChoice(NO_FOLDER);
+    else setFolderChoice(value.slice(FOLDER_PREFIX.length));
+  };
+  const toggleTag = (tag) =>
+    setTagChoice((current) =>
+      current.some((chosen) => sameText(chosen, tag)) ? current.filter((chosen) => !sameText(chosen, tag)) : [...current, tag],
+    );
+  const clearFilters = () => {
+    setQuery("");
+    setFolderChoice(null);
+    setTagChoice([]);
+  };
 
   /** Toast what was added; open the dialog when something failed or was skipped. */
   const announce = ({ added, reports }) => {
@@ -171,26 +263,30 @@ export default function TemplatesView() {
       </Card>
     );
   } else if (!visible.length) {
+    const parts = [];
+    if (needle) parts.push(`matches "${query.trim()}"`);
+    if (activeFolder !== null) parts.push(activeFolder ? `is in the folder "${activeFolder}"` : "is outside every folder");
+    if (activeTags.length) parts.push(`is tagged ${activeTags.map((tag) => `"${tag}"`).join(" and ")}`);
     content = (
       <Card>
         <EmptyState
           icon={SearchX}
-          title="No templates match your search"
-          description={`Nothing matches "${query.trim()}". Search looks at names and descriptions.`}
-          action={<Button onClick={() => setQuery("")}>Clear search</Button>}
+          title="No templates match"
+          description={`No template ${parts.join(" and ")}. Search looks at names, descriptions, tags and folders.`}
+          action={<Button onClick={clearFilters}>Clear filters</Button>}
         />
       </Card>
     );
-  } else {
+  } else if (grouped) {
     content = (
-      <ul className="grid gap-4 md:grid-cols-2">
-        {visible.map((template) => (
-          <li key={template.id} className="grid min-w-0">
-            <TemplateCard template={template} />
-          </li>
+      <div className="flex flex-col gap-8">
+        {groups.map((group) => (
+          <FolderGroup key={group.folder.toLowerCase() || "\u0000"} folder={group.folder} templates={group.templates} />
         ))}
-      </ul>
+      </div>
     );
+  } else {
+    content = <CardGrid templates={visible} showFolder={activeFolder === null} />;
   }
 
   return (
@@ -232,31 +328,83 @@ export default function TemplatesView() {
         onChange={onFilesPicked}
       />
 
-      {showSearch ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <Field label="Search templates" hideLabel className="w-full sm:max-w-sm">
-            {(props) => (
-              <div className="relative">
-                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden="true" />
-                <Input
-                  {...props}
-                  type="search"
-                  value={query}
-                  placeholder="Search templates"
-                  autoComplete="off"
-                  className="pl-9"
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-              </div>
-            )}
-          </Field>
-          <p role="status" className="text-sm text-muted">
-            {needle ? `Showing ${visible.length} of ${plural(templates.length, "template")}` : plural(templates.length, "template")}
-          </p>
+      {showToolbar ? (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+            {showSearch ? (
+              <Field label="Search templates" hideLabel className="w-full sm:max-w-sm">
+                {(props) => (
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+                    <Input
+                      {...props}
+                      type="search"
+                      value={query}
+                      placeholder="Search templates"
+                      autoComplete="off"
+                      className="pl-9"
+                      onChange={(event) => setQuery(event.target.value)}
+                    />
+                  </div>
+                )}
+              </Field>
+            ) : null}
+            {showFolderFilter ? (
+              <Field label="Folder" hideLabel className="w-full sm:w-56">
+                {(props) => (
+                  <Select {...props} value={folderValue} onChange={(event) => onFolderSelect(event.target.value)}>
+                    <option value={ALL_FOLDERS}>All folders ({templates.length})</option>
+                    {folders.map((name) => (
+                      <option key={name} value={`${FOLDER_PREFIX}${name}`}>
+                        {name} ({folderCounts.get(name.toLowerCase()) || 0})
+                      </option>
+                    ))}
+                    {looseCount ? <option value={LOOSE_FOLDER}>No folder ({looseCount})</option> : null}
+                  </Select>
+                )}
+              </Field>
+            ) : null}
+            <p role="status" className="text-sm text-muted sm:pb-2.5">
+              {filtering ? `Showing ${visible.length} of ${plural(templates.length, "template")}` : plural(templates.length, "template")}
+            </p>
+            {filtering ? (
+              <Button variant="ghost" size="sm" icon={X} className="sm:mb-1" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            ) : null}
+          </div>
+
+          {showTagFilter ? (
+            <div role="group" aria-label="Filter by tag" className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-sm text-muted" aria-hidden="true">
+                Tags:
+              </span>
+              {tagStats.map(({ tag, count }) => {
+                const pressed = activeTags.some((active) => sameText(active, tag));
+                return (
+                  <Button
+                    key={tag}
+                    size="sm"
+                    variant={pressed ? "soft" : "ghost"}
+                    icon={pressed ? Check : Tag}
+                    aria-pressed={pressed}
+                    aria-label={`${tag}, ${plural(count, "template")}`}
+                    className={pressed ? "tap-target ring-1 ring-brand/40" : "tap-target border border-line"}
+                    onClick={() => toggleTag(tag)}
+                  >
+                    <span className="max-w-[12rem] truncate">{tag}</span>
+                    <span className="text-xs text-muted">{count}</span>
+                  </Button>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       {content}
+
+      {hasHydrated ? <AliasManager /> : null}
 
       {hasHydrated && templates.length ? (
         <p className="text-xs text-muted">
@@ -282,6 +430,8 @@ export default function TemplatesView() {
       >
         {report ? <ImportReport report={report} /> : null}
       </Modal>
+
+      <SharedTemplateImport />
     </main>
   );
 }
