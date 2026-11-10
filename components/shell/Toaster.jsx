@@ -2,7 +2,7 @@
 
 import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { IconButton } from "@/components/ui";
+import { Button, IconButton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useToastStore } from "@/store/useToastStore";
 
@@ -17,6 +17,8 @@ import { useToastStore } from "@/store/useToastStore";
  * - auto-dismiss after `duration` ms (0 = sticky); the countdown pauses while
  *   the pointer or keyboard focus is on the stack
  * - Escape dismisses the focused toast
+ * - an optional `action: { label, onClick }` (passed through `toast.*` options) renders one
+ *   button under the message; pressing it closes the toast and runs onClick
  */
 
 const TYPES = {
@@ -43,6 +45,8 @@ function ToastItem({ toast, paused, onClosing }) {
   const wasPaused = useRef(false);
   const type = TYPES[toast.type] || TYPES.info;
   const Icon = type.icon;
+  const action =
+    toast.action && typeof toast.action.onClick === "function" && toast.action.label ? toast.action : null;
 
   // Countdown. A pause keeps the time that was left; resuming after a real
   // pause grants at least MIN_RESUME_MS. (A cleanup without a pause, such as
@@ -100,6 +104,19 @@ function ToastItem({ toast, paused, onClosing }) {
           {toast.message}
         </p>
         {toast.description ? <p className="mt-0.5 break-words text-muted">{toast.description}</p> : null}
+        {action ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="mt-2.5"
+            onClick={() => {
+              close();
+              action.onClick();
+            }}
+          >
+            {action.label}
+          </Button>
+        ) : null}
       </div>
       <IconButton
         label="Dismiss notification"
