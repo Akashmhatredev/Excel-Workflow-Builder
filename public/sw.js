@@ -17,9 +17,14 @@
  * HTML, the scripts and the CSS). That includes the data worker, which only starts when a
  * file is added, so a page loaded once can process a file offline.
  *
- * Updates: bump VERSION for every release. The browser installs the new worker next to the
- * old one; the page shows "A new version is available" and its Reload button sends
- * SKIP_WAITING. Activation deletes the caches of older versions.
+ * New deployments: pages are network first, so an online visit always gets the latest release.
+ * When a fresh page needs static files that are not cached yet, the other saved routes are
+ * re-downloaded too, so the offline copy is one release, not a mix.
+ *
+ * Updates of this worker: bump VERSION whenever this file's behaviour or the precache list
+ * changes (bumping it on every release is fine too: it starts the caches afresh). The browser
+ * installs the new worker next to the old one; the page shows "A new version is available"
+ * and its Reload button sends SKIP_WAITING. Activation deletes the caches of older versions.
  */
 
 const VERSION = "v1";
@@ -133,11 +138,13 @@ function assetType(url) {
  * static cache. Already cached files are skipped together with their references (they were
  * followed when they were added). A file still held by an older version's cache is copied
  * instead of downloaded: static files never change.
+ * Resolves to the number of files that were added.
  */
 async function cacheStaticGraph(urls) {
   const cache = await caches.open(CACHE.static);
   const queue = [...urls];
   const seen = new Set(queue);
+  let added = 0;
 
   async function next() {
     while (queue.length) {
@@ -164,6 +171,7 @@ async function cacheStaticGraph(urls) {
         }
       }
       await cache.put(url, response);
+      added += 1;
     }
   }
 
@@ -171,6 +179,7 @@ async function cacheStaticGraph(urls) {
   await Promise.all(Array.from({ length: 6 }, () => next()));
   // A runner can stop while another one is still adding references: drain the rest.
   if (queue.length) await next();
+  return added;
 }
 
 /** Same-origin files (icons, manifest) into the runtime cache, unless already there. */
@@ -189,7 +198,10 @@ async function cacheFiles(urls) {
   );
 }
 
-/** Everything a page needs to start: its scripts, styles, fonts, icons and manifest. */
+/**
+ * Everything a page needs to start: its scripts, styles, fonts, icons and manifest.
+ * Resolves to the number of static files that were not cached yet.
+ */
 async function cachePageAssets(pagesHtml) {
   const assets = new Set();
   const files = new Set();
@@ -197,7 +209,31 @@ async function cachePageAssets(pagesHtml) {
     for (const ref of staticRefs(html, url, "html")) assets.add(ref);
     for (const ref of linkedFiles(html, url)) files.add(ref);
   }
-  await Promise.all([cacheStaticGraph(assets), cacheFiles(files)]);
+  const [added] = await Promise.all([cacheStaticGraph(assets), cacheFiles(files)]);
+  return added;
+}
+
+/**
+ * A fresh page that needed static files we did not have means a new deployment. Refresh
+ * the other cached routes too, so every page opened offline later comes from the same
+ * release (instead of a mix of old and new pages).
+ */
+let refreshing = null;
+function refreshOtherRoutes(exceptKey) {
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    const paths = [...REQUIRED_ROUTES, ...OPTIONAL_ROUTES].filter(
+      (path) => pageKey(new URL(path, self.location.origin).href) !== exceptKey,
+    );
+    const pages = await Promise.all(paths.map((path) => precacheRoute(path, false)));
+    await cachePageAssets(pages.filter(Boolean));
+    await trim(CACHE.static, LIMITS.static);
+  })()
+    .catch(() => {})
+    .finally(() => {
+      refreshing = null;
+    });
+  return refreshing;
 }
 
 /** Download one route's HTML into the pages cache. Resolves to { html, url } or null. */
@@ -325,8 +361,10 @@ async function handleNavigation(event) {
       event.waitUntil(
         (async () => {
           await pages.put(key, forCache);
-          // A new deployment brings new scripts: cache them while the page is fresh.
-          await cachePageAssets([{ html: await forScan.text(), url: request.url }]);
+          // A new deployment brings new scripts: cache them while the page is fresh,
+          // and bring the other saved pages up to the same release.
+          const added = await cachePageAssets([{ html: await forScan.text(), url: request.url }]);
+          if (added > 0) await refreshOtherRoutes(key);
         })().catch(() => {}),
       );
     }
