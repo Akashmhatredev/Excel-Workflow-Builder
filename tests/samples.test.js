@@ -37,6 +37,7 @@ describe("sample-template.json", () => {
     for (const type of ["trim", "upper", "title", "dateFormat", "numberFormat", "default"]) expect(types).toContain(type);
     expect(definition.filters.rules).toHaveLength(1);
     expect(definition.sort).toHaveLength(1);
+    expect(definition.summary).toEqual({ rowKey: "fld_region", columnKey: "fld_status", valueKey: "fld_line_total", fn: "sum" });
     const summary = definition.outputs[1];
     expect(summary.overrides.groupBy.enabled).toBe(true);
     expect(summary.overrides.groupBy.config.aggregations.map((a) => a.fn)).toEqual(["sum", "count"]);

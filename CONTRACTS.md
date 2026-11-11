@@ -387,3 +387,12 @@ Shapes are in the `lib/schema.js` header: `Cleaning`, `Lookup`, `ConditionalForm
   `/templates#template=<payload>`; QR codes were left out because links are 2,000+ characters.
 - **Batch** (`/batch`, `/batch?template=<id>`): runs queue one after another in the worker dataset `"batch"`; the zip
   is downloaded with a button after the run.
+
+## 14. Summary settings in the definition
+
+`definition.summary = { rowKey, columnKey, valueKey, fn }` (field ids, `""` = not chosen; `fn` an `AGGREGATIONS`
+key) holds the Mapping step's Summary tab settings, so they are undoable, autosaved with the draft and saved in
+templates. `createSummary()` builds the default and `normalizeDefinition` fills it in for older templates (no schema
+version bump: the field is additive). Store action: `setSummary(patch)` (undoable, a no-op patch records nothing).
+`removeField` clears any summary key that pointed at the removed field. The UI still falls back to a sensible row
+field when `rowKey` is empty or unknown (`resolvePivot` in `components/summary/pivot.js`).

@@ -8,6 +8,7 @@ import {
   createField,
   createId,
   createOutput,
+  createSummary,
   createTransform,
   isLookupConfigured,
   matchColumns,
@@ -96,8 +97,18 @@ function removeFieldEverywhere(definition, fieldId) {
   definition.outputs.forEach((output) => collect(output.overrides.groupBy.config));
   const keepSort = (rule) => rule.key !== fieldId && !removedAggregations.has(rule.key);
   const cleaning = definition.cleaning;
+  const summary = definition.summary;
+  const summaryUses = summary && [summary.rowKey, summary.columnKey, summary.valueKey].includes(fieldId);
   return {
     ...definition,
+    summary: summaryUses
+      ? {
+          ...summary,
+          rowKey: summary.rowKey === fieldId ? "" : summary.rowKey,
+          columnKey: summary.columnKey === fieldId ? "" : summary.columnKey,
+          valueKey: summary.valueKey === fieldId ? "" : summary.valueKey,
+        }
+      : summary,
     cleaning: cleaning
       ? {
           ...cleaning,
@@ -583,6 +594,15 @@ export const useWorkflowStore = create((set, get) => {
     setFilters: (group) => commit("filters", (definition) => ({ ...definition, filters: group })),
     setGroupBy: (groupBy) => commit("groupBy", (definition) => ({ ...definition, groupBy })),
     setSort: (rules) => commit("sort", (definition) => ({ ...definition, sort: rules })),
+
+    /** Summary (pivot) tab settings: patch of { rowKey, columnKey, valueKey, fn }. Saved with templates and undoable. */
+    setSummary: (patch) =>
+      commit(`summary:${Object.keys(patch || {}).join(",")}`, (definition) => {
+        const current = definition.summary || createSummary();
+        const next = { ...current, ...(patch || {}) };
+        const same = ["rowKey", "columnKey", "valueKey", "fn"].every((key) => next[key] === current[key]);
+        return same ? definition : { ...definition, summary: next };
+      }),
 
     /** Data cleaning options. patch is merged; patch.removeDuplicates and patch.fillBlanks are merged one level deep. */
     setCleaning: (patch) => {

@@ -3,9 +3,9 @@
 import { useId, useMemo, useRef, useState } from "react";
 import PreviewPanel from "@/components/mapping/PreviewPanel";
 import SummaryPanel from "@/components/summary/SummaryPanel";
-import { DEFAULT_PIVOT } from "@/components/summary/pivot";
 import { Card } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { useWorkflowStore } from "@/store/useWorkflowStore";
 
 const TABS = [
   { id: "preview", label: "Preview" },
@@ -17,14 +17,16 @@ const EMPTY = [];
  * The right-hand side of the Mapping step: tabs "Preview | Summary".
  * Preview = the first rows of the result (optionally with problem cells highlighted);
  * Summary = a pivot of the rows. Only the open tab is mounted, so the pivot only runs while
- * it is shown; its settings and the highlight switch live here so they survive a tab switch.
+ * it is shown. The pivot settings live in the workflow definition (`definition.summary`), so they
+ * are undoable, autosaved with the draft and saved in templates; the highlight switch lives here.
  */
 export default function ResultPanel({ preview, fields = EMPTY, columnIssues, onGoToUpload, className }) {
   const baseId = useId();
   const tabRefs = useRef([]);
   const [tab, setTab] = useState("preview");
   const [highlight, setHighlight] = useState(false);
-  const [pivot, setPivot] = useState(DEFAULT_PIVOT);
+  const pivot = useWorkflowStore((state) => state.definition.summary);
+  const setSummary = useWorkflowStore((state) => state.setSummary);
 
   const previewColumns = preview.data && preview.data.columns;
   const types = useMemo(() => {
@@ -96,7 +98,7 @@ export default function ResultPanel({ preview, fields = EMPTY, columnIssues, onG
         ) : (
           <SummaryPanel
             settings={pivot}
-            onSettingsChange={(patch) => setPivot((current) => ({ ...current, ...patch }))}
+            onSettingsChange={setSummary}
             fields={fields}
             types={types}
             onGoToUpload={onGoToUpload}

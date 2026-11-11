@@ -88,3 +88,18 @@ describe("output overrides", () => {
     expect(resolveOutputConfig(definition, createOutput()).groupBy.enabled).toBe(true);
   });
 });
+
+describe("summary settings", () => {
+  it("normalises missing or broken summary settings", () => {
+    expect(normalizeDefinition({}).summary).toEqual({ rowKey: "", columnKey: "", valueKey: "", fn: "count" });
+    expect(normalizeDefinition({ summary: { rowKey: 3, fn: "median", valueKey: "fld_a" } }).summary).toEqual({
+      rowKey: "3",
+      columnKey: "",
+      valueKey: "fld_a",
+      fn: "count",
+    });
+    expect(validateTemplateShape({ name: "T", definition: { fields: [], summary: "nope" } })).toContain(
+      "definition.summary must be an object.",
+    );
+  });
+});
