@@ -51,7 +51,8 @@ The wizard has four steps. You can move back and forward freely; nothing is lost
    and multi-column sorting. **Data cleaning** trims spaces, removes empty rows and duplicates, and fills
    blanks (with a value or the value from the row above). A live preview shows the first 20 result rows
    ("Highlight problems" marks cells that could not be calculated and empty cells), a **Summary** tab
-   builds a pivot table with totals, and validation problems
+   builds a pivot table with totals (its settings are saved with the workflow and in templates, and
+   they are undoable), and validation problems
    (missing source columns, type mismatches, broken formulas) are highlighted on the field they
    belong to. Undo and redo work here (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z).
 3. **Outputs**: add as many outputs as you need. Each has a name, a file type (xlsx or csv), a sheet
@@ -214,4 +215,3 @@ where current releases are published; the copy on the npm registry is outdated.
 - Fine-grained parse progress for very large xlsx files.
 - A smaller xlsx writer for very large exports.
 - QR codes for short templates; a template gallery shared between people (would need a backend).
-- Saving the Summary tab's pivot settings in the template.

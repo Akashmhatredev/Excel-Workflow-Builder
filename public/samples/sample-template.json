@@ -350,6 +350,12 @@
           "fieldIds": []
         }
       },
+      "summary": {
+        "rowKey": "fld_region",
+        "columnKey": "fld_status",
+        "valueKey": "fld_line_total",
+        "fn": "sum"
+      },
       "lookup": {
         "enabled": false,
         "sheetName": "",

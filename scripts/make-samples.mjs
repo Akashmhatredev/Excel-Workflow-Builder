@@ -270,6 +270,8 @@ const definition = createDefinition({
     ],
   }),
   sort: [createSortRule({ id: "srt_order_date", key: orderDate.id, direction: "asc" })],
+  // The Summary tab opens on "Sum of Line Total by Region and Status".
+  summary: { rowKey: region.id, columnKey: status.id, valueKey: lineTotal.id, fn: "sum" },
   outputs: [
     createOutput({ id: "out_order_details", name: "Order details", fileType: "xlsx", sheetName: "Orders" }),
     createOutput({
