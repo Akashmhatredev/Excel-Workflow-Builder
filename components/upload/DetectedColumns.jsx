@@ -1,6 +1,6 @@
 "use client";
 
-import { Merge } from "lucide-react";
+import { KeyRound, Merge } from "lucide-react";
 import { useState } from "react";
 import { Badge, Button } from "@/components/ui";
 
@@ -27,6 +27,12 @@ export default function DetectedColumns({ columns }) {
             <span className="truncate" title={column.name}>
               {column.name}
             </span>
+            {column.origin === "key" ? (
+              <Badge tone="info" title="Built from the merge key columns">
+                <KeyRound className="size-3" aria-hidden="true" />
+                key
+              </Badge>
+            ) : null}
             {column.origin === "lookup" ? (
               <Badge tone="neutral" title="Merged in from the second file" className="border border-line-strong">
                 <Merge className="size-3" aria-hidden="true" />

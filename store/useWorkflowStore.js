@@ -10,6 +10,7 @@ import {
   createOutput,
   createSummary,
   createTransform,
+  getLookupKeys,
   isLookupConfigured,
   matchColumns,
   normalizeDefinition,
@@ -70,7 +71,7 @@ const emptyLookup = () => ({
   lookupRowCount: 0,
   lookupStatus: "idle", // 'idle' | 'parsing' | 'ready' | 'error'
   lookupError: null,
-  lookupInfo: null, // { applied, matched, unmatched, addedColumns: string[], duplicateKeys } from the last table load
+  lookupInfo: null, // { applied, matched, unmatched, addedColumns, duplicateKeys, mainDuplicateKeys, emptyKeys, keyColumn } from the last table load
 });
 
 function stripFieldFromFilterGroup(group, fieldId) {
@@ -224,6 +225,7 @@ export const useWorkflowStore = create((set, get) => {
           pendingLookup.add(normalizeName(column.name));
           pendingLookup.add(normalizeName(`${column.name} (lookup)`));
         }
+        if (definition.lookup.keyColumnName) pendingLookup.add(normalizeName(definition.lookup.keyColumnName));
       }
       const missing = match.missing.filter((name) => !pendingLookup.has(normalizeName(name)));
       set({
@@ -280,14 +282,16 @@ export const useWorkflowStore = create((set, get) => {
       if (token !== lookupToken) return false;
       const names = table.columns.map((column) => column.name);
       const current = get().definition.lookup;
-      const keyMatch = matchColumns(current.lookupColumn ? [current.lookupColumn] : [], names);
+      const currentKeys = getLookupKeys(current).lookup;
+      const keyMatch = matchColumns(currentKeys, names);
       const columnMatch = matchColumns(current.columns, names);
       const lookup = {
         ...current,
         enabled: true,
         sheetName: (table.sheetNames && table.sheetNames[0]) || sheetName || "",
         headerRow: table.headerRow || headerRow,
-        lookupColumn: keyMatch.map[current.lookupColumn] || "",
+        // Key columns that this file does not have are dropped (the user picks them again).
+        lookupKeyColumns: keyMatch.missing.length ? [] : currentKeys.map((name) => keyMatch.map[name]),
         columns: current.columns.map((name) => columnMatch.map[name]).filter(Boolean),
         expectedColumns: table.columns.map(({ name, type }) => ({ name, type })),
       };

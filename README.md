@@ -42,8 +42,13 @@ The wizard has four steps. You can move back and forward freely; nothing is lost
 1. **Upload**: drop an `.xlsx`, `.xls` or `.csv` file (`.xlsm` and `.tsv` work too). Pick the
    sheet(s) and the header row, and check the detected columns, their inferred types and the first
    50 rows. "Browse all rows" pages through the whole file. "Merge columns from a second file" works like
-   VLOOKUP: pick a key column in each file and the chosen columns of the second file are added to every
-   matching row.
+   VLOOKUP: pick a key in each file and the chosen columns of the second file are added to every
+   matching row. A key can be one column or **several columns combined** with a separator of your
+   choice (`_`, `-`, `|`, `/`, `.`, space, nothing, or a custom one), for example Customer + Date ->
+   `C001_2024-01-05`. The two files may use a different number of key columns, so a combined key also
+   matches a column that already holds the joined text. You can add the combined key to the file as a
+   column (a ready-made unique ID for your outputs), and the result says whether the key is unique in
+   each file.
 2. **Mapping**: define the output fields. Each field takes a source column, a combination of
    columns (`{First} {Last}`) or a formula (`{Qty} * {Price}`), plus a chain of transforms: trim,
    upper/lower/title case, number format, date format, default if empty, split by delimiter, find

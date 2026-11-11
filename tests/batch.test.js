@@ -307,7 +307,7 @@ describe("runBatch", () => {
     const lookup = createLookup({ enabled: true, matchColumn: "Customer", lookupColumn: "Name" });
     const files = [addFile({ name: "a.xlsx", columns: ["Customer", "Amount"], rows: 1 })];
     await runBatch({ files, definition: salesDefinition({ lookup }), useLookup: true });
-    expect(worker.calls.find((call) => call[0] === "loadTable")[1].lookup).toMatchObject({ matchColumn: "Customer", lookupColumn: "Name" });
+    expect(worker.calls.find((call) => call[0] === "loadTable")[1].lookup).toMatchObject({ mainKeyColumns: ["Customer"], lookupKeyColumns: ["Name"] });
 
     worker.calls.length = 0;
     await runBatch({ files, definition: salesDefinition({ lookup }), useLookup: false });

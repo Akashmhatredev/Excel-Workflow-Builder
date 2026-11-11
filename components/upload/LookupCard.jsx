@@ -6,7 +6,7 @@ import LookupSettings from "@/components/upload/LookupSettings";
 import { formatBytes, plural } from "@/components/upload/format";
 import { Badge, Button, Card, Notice } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { isLookupConfigured } from "@/lib/schema";
+import { describeKey, getLookupKeys, isLookupConfigured } from "@/lib/schema";
 import { toast } from "@/lib/toast";
 import { selectLookupNeeded, useWorkflowStore } from "@/store/useWorkflowStore";
 
@@ -15,13 +15,14 @@ const isFileDrag = (event) => Array.from((event.dataTransfer && event.dataTransf
 
 /** "It matches on “Order ID” and adds Reason and Refund Amount." for a template that expects a lookup file. */
 function describeExpected(lookup) {
+  const keys = getLookupKeys(lookup);
   const names = lookup.columns.length
     ? lookup.columns
-    : lookup.expectedColumns.map((column) => column.name).filter((name) => name !== lookup.lookupColumn);
+    : lookup.expectedColumns.map((column) => column.name).filter((name) => !keys.lookup.includes(name));
   const shown = names.slice(0, 4).map((name) => `“${name}”`);
   const more = names.length > shown.length ? ` and ${names.length - shown.length} more` : "";
   const adds = shown.length ? ` and adds ${shown.join(", ")}${more}` : "";
-  return `It matches rows on “${lookup.matchColumn}”${adds}.`;
+  return `It matches rows on “${describeKey(keys.main, lookup.keySeparator)}”${adds}.`;
 }
 
 /**
@@ -135,7 +136,7 @@ export default function LookupCard() {
             </button>
           </h2>
           <p className="mt-0.5 text-sm text-muted">
-            Like VLOOKUP: match each row to a row of another file by a key column and bring its columns in.
+            Like VLOOKUP: match each row to a row of another file by a key (one column, or several combined) and bring its columns in.
           </p>
         </div>
         {status ? <div className="shrink-0">{status}</div> : null}

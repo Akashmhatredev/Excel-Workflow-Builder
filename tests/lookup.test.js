@@ -57,7 +57,16 @@ describe("joinLookup", () => {
     const table = mainTable();
     const { info, warnings } = joinLookup(table, lookupTable(), config());
     expect(warnings).toEqual([]);
-    expect(info).toEqual({ applied: true, matched: 2, unmatched: 3, addedColumns: ["Name (lookup)", "Price", "Since"], duplicateKeys: 1 });
+    expect(info).toEqual({
+      applied: true,
+      matched: 2,
+      unmatched: 3,
+      addedColumns: ["Name (lookup)", "Price", "Since"],
+      duplicateKeys: 1,
+      mainDuplicateKeys: 0,
+      emptyKeys: 1,
+      keyColumn: null,
+    });
     expect(table.columns.slice(3)).toEqual([
       { name: "Name (lookup)", type: "text", index: 3, origin: "lookup" },
       { name: "Price", type: "number", index: 4, origin: "lookup" },
@@ -84,8 +93,8 @@ describe("joinLookup", () => {
     const table = mainTable();
     expect(joinLookup(table, null, config()).warnings).toEqual(["The lookup file is not loaded, so its columns were not added."]);
     const noMatch = joinLookup(table, lookupTable(), config({ matchColumn: "Item" }));
-    expect(noMatch.info).toEqual({ applied: false, matched: 0, unmatched: 0, addedColumns: [], duplicateKeys: 0 });
-    expect(noMatch.warnings[0]).toMatch(/match column "Item" was not found/);
+    expect(noMatch.info).toMatchObject({ applied: false, matched: 0, unmatched: 0, addedColumns: [], duplicateKeys: 0 });
+    expect(noMatch.warnings[0]).toMatch(/key column "Item" was not found in this file/);
     expect(joinLookup(table, lookupTable(), config({ lookupColumn: "Id" })).warnings[0]).toMatch(/key column "Id" was not found in the lookup file/);
     expect(table.columns).toHaveLength(3);
   });
@@ -137,7 +146,7 @@ describe("loadTable with a lookup", () => {
       ["Product", "text", "lookup"],
       ["Price", "number", "lookup"],
     ]);
-    expect(main.lookupInfo).toEqual({ applied: true, matched: 2, unmatched: 1, addedColumns: ["Product", "Price"], duplicateKeys: 1 });
+    expect(main.lookupInfo).toMatchObject({ applied: true, matched: 2, unmatched: 1, addedColumns: ["Product", "Price"], duplicateKeys: 1 });
     expect((await handlers.getRows({ datasetId: "main", offset: 0, limit: 3 })).rows).toEqual([
       ["SO-1", "A1", "2", "Pen", "10"],
       ["SO-2", "b2", "5", "Ink", "5"],
@@ -156,13 +165,105 @@ describe("loadTable with a lookup", () => {
   it("warns and leaves the table alone when the lookup file is missing or not configured", async () => {
     const handlers = await setup();
     const missing = await handlers.loadTable({ datasetId: "main", sheetNames: [], headerRow: 1, lookup: config() }, ctx);
-    expect(missing.lookupInfo).toEqual({ applied: false, matched: 0, unmatched: 0, addedColumns: [], duplicateKeys: 0 });
+    expect(missing.lookupInfo).toMatchObject({ applied: false, matched: 0, unmatched: 0, addedColumns: [], duplicateKeys: 0 });
     expect(missing.warnings).toEqual(["The lookup file is not loaded, so its columns were not added."]);
     const unset = await handlers.loadTable({ datasetId: "main", sheetNames: [], headerRow: 1, lookup: config({ lookupColumn: "" }) }, ctx);
     expect(unset.lookupInfo.applied).toBe(false);
-    expect(unset.warnings[0]).toMatch(/Choose the match column/);
+    expect(unset.warnings[0]).toMatch(/Choose the key columns of both files/);
     const off = await handlers.loadTable({ datasetId: "main", sheetNames: [], headerRow: 1, lookup: config({ enabled: false }) }, ctx);
     expect(off.lookupInfo).toBeNull();
     expect(off.warnings).toEqual([]);
+  });
+});
+
+describe("multi-column merge keys", () => {
+  const orders = () => ({
+    columns: [
+      { name: "Customer", type: "text", index: 0 },
+      { name: "Date", type: "date", index: 1 },
+      { name: "Line", type: "number", index: 2 },
+      { name: "Qty", type: "number", index: 3 },
+    ],
+    rows: [
+      ["C001", day(2024, 1, 5), 1, 3],
+      [" c001 ", day(2024, 1, 5), 2, 4],
+      ["C002", day(2024, 2, 1), 1, 5],
+      ["C001", day(2024, 1, 5), 1, 9], // same key as row 1
+      ["C003", null, 1, 1], // empty part: never matches
+    ],
+    warnings: [],
+  });
+
+  it("builds a key from several columns with the chosen separator and adds it as a column", () => {
+    const table = orders();
+    const prices = {
+      columns: [
+        { name: "Cust", type: "text", index: 0 },
+        { name: "On", type: "text", index: 1 },
+        { name: "Line no", type: "text", index: 2 },
+        { name: "Rate", type: "number", index: 3 },
+      ],
+      rows: [
+        ["C001", "2024-01-05", "1", 10],
+        ["C001", "2024-01-05", "2.0", 20],
+        ["C002", "2024-02-01", "1", 30],
+        ["C002", "2024-02-01", 1, 99], // duplicate key: the first row wins
+      ],
+    };
+    const lookup = createLookup({
+      enabled: true,
+      mainKeyColumns: ["Customer", "Date", "Line"],
+      lookupKeyColumns: ["Cust", "On", "Line no"],
+      keySeparator: "-",
+      keyColumnName: "Order Key",
+      columns: ["Rate"],
+    });
+    const { info, warnings } = joinLookup(table, prices, lookup);
+    expect(warnings).toEqual([]);
+    expect(info).toMatchObject({ applied: true, matched: 4, unmatched: 1, duplicateKeys: 1, mainDuplicateKeys: 1, emptyKeys: 1, keyColumn: "Order Key" });
+    expect(table.columns.slice(4)).toEqual([
+      { name: "Order Key", type: "text", index: 4, origin: "key" },
+      { name: "Rate", type: "number", index: 5, origin: "lookup" },
+    ]);
+    expect(table.rows.map((row) => [row[4], row[5]])).toEqual([
+      ["C001-2024-01-05-1", 10],
+      ["c001-2024-01-05-2", 20],
+      ["C002-2024-02-01-1", 30],
+      ["C001-2024-01-05-1", 10],
+      [null, null],
+    ]);
+  });
+
+  it("matches a built key against a single column that already holds the joined text", () => {
+    const table = orders();
+    const keyed = {
+      columns: [
+        { name: "Key", type: "text", index: 0 },
+        { name: "Note", type: "text", index: 1 },
+      ],
+      rows: [
+        ["C001_2024-01-05", "first visit"],
+        ["C002_2024-02-01", "second visit"],
+      ],
+    };
+    const lookup = createLookup({ enabled: true, mainKeyColumns: ["Customer", "Date"], lookupKeyColumns: ["Key"], columns: [] });
+    const { info } = joinLookup(table, keyed, lookup);
+    expect(info).toMatchObject({ applied: true, matched: 4, addedColumns: ["Note"], keyColumn: null });
+    expect(table.rows.map((row) => row[4])).toEqual(["first visit", "first visit", "second visit", "first visit", null]);
+  });
+
+  it("joins parts directly with an empty separator and keeps the old single-column shape working", () => {
+    const table = orders();
+    const lookup = createLookup({ enabled: true, mainKeyColumns: ["Customer", "Line"], lookupKeyColumns: ["Id"], keySeparator: "", columns: ["V"] });
+    const ids = { columns: [{ name: "Id", type: "text", index: 0 }, { name: "V", type: "text", index: 1 }], rows: [["c0011", "yes"]] };
+    expect(joinLookup(table, ids, lookup).info.matched).toBe(2);
+    const legacy = joinLookup(orders(), ids, { enabled: true, matchColumn: "Customer", lookupColumn: "Id", columns: ["V"] });
+    expect(legacy.info).toMatchObject({ applied: true, matched: 0 });
+  });
+
+  it("reports a missing key column on either side", () => {
+    const missing = joinLookup(orders(), null, createLookup({ enabled: true, mainKeyColumns: ["Customer", "Nope"], lookupKeyColumns: ["Key"] }));
+    expect(missing.info.applied).toBe(false);
+    expect(missing.warnings[0]).toMatch(/key column "Nope" was not found in this file/);
   });
 });

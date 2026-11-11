@@ -15,7 +15,7 @@ import { useUndoShortcuts } from "@/components/mapping/useUndoShortcuts";
 import { plural } from "@/components/upload/format";
 import { Button, Card, EmptyState, Notice, SectionHeader } from "@/components/ui";
 import { usePreview } from "@/hooks/usePreview";
-import { getResultColumns, isGroupingActive } from "@/lib/schema";
+import { describeKey, getLookupKeys, getResultColumns, isGroupingActive } from "@/lib/schema";
 import { toast } from "@/lib/toast";
 import { validateDefinition } from "@/lib/validate";
 import { selectAvailableColumns, selectLookupNeeded, useWorkflowStore } from "@/store/useWorkflowStore";
@@ -104,7 +104,8 @@ export default function MappingStep() {
                 </Button>
               }
             >
-              It matches rows on “{definition.lookup.matchColumn}”. The columns it brings in are missing from the preview until
+              It matches rows on “{describeKey(getLookupKeys(definition.lookup).main, definition.lookup.keySeparator)}”. The
+              columns it brings in are missing from the preview until
               that file is added on the Upload step.
             </Notice>
           ) : null}
