@@ -346,7 +346,7 @@ describe("exporting templates", () => {
     const template = sampleTemplate({ definition });
     const [imported] = parseTemplateJson(json(serializeTemplate(template))).templates;
     expect(imported).toEqual(template);
-    expect(imported.definition.lookup).toMatchObject({ enabled: true, matchColumn: "Region", columns: ["Rate"] });
+    expect(imported.definition.lookup).toMatchObject({ enabled: true, mainKeyColumns: ["Region"], lookupKeyColumns: ["Code"], columns: ["Rate"] });
     expect(imported.definition.outputs[0].conditionalFormats[0].style).toBe("green");
   });
 
@@ -570,10 +570,10 @@ describe("template helpers", () => {
       ...sampleDefinition(),
       lookup: { enabled: true, matchColumn: "Region", lookupColumn: "Code" },
     });
-    expect(columnUsage(definition, "Region")).toEqual(["Region", "the lookup (match column)"]);
+    expect(columnUsage(definition, "Region")).toEqual(["Region", "the merge key"]);
     // a lookup that is switched off, or not fully set up, does not read the column
     expect(columnUsage({ ...definition, lookup: { ...definition.lookup, enabled: false } }, "Region")).toEqual(["Region"]);
-    expect(columnUsage({ ...definition, lookup: { ...definition.lookup, lookupColumn: "" } }, "Region")).toEqual(["Region"]);
+    expect(columnUsage({ ...definition, lookup: { ...definition.lookup, lookupColumn: "", lookupKeyColumns: [] } }, "Region")).toEqual(["Region"]);
   });
 });
 

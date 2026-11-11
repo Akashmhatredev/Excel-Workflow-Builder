@@ -1,36 +1,19 @@
 "use client";
 
-import { CheckCircle2, Loader2, Merge, Wand2 } from "lucide-react";
+import { CheckCircle2, KeyRound, Loader2, Merge } from "lucide-react";
 import { useMemo, useState } from "react";
-import { columnSelection, describeLookupInfo, suggestKeyPair, toggleColumn } from "@/components/upload/lookup";
+import KeyBuilder from "@/components/upload/KeyBuilder";
+import { columnSelection, describeLookupInfo, toggleColumn } from "@/components/upload/lookup";
 import { plural } from "@/components/upload/format";
 import { Badge, Button, Checkbox, Field, Input, Notice, Select } from "@/components/ui";
-import { isLookupConfigured } from "@/lib/schema";
+import { getLookupKeys, isLookupConfigured } from "@/lib/schema";
 import { useWorkflowStore } from "@/store/useWorkflowStore";
 
-/** Options for a column select, plus the current value when it is no longer in the list. */
-function ColumnOptions({ columns, value, placeholder }) {
-  const known = !value || columns.some((column) => column.name === value);
-  return (
-    <>
-      <option value="">{placeholder}</option>
-      {!known ? <option value={value}>{value} (not found)</option> : null}
-      {columns.map((column, index) => (
-        <option key={`${column.name}-${index}`} value={column.name}>
-          {column.name}
-        </option>
-      ))}
-    </>
-  );
-}
-
 /**
- * Settings of a loaded lookup file: sheet, header row, the key pair and the columns to
+ * Settings of a loaded lookup file: sheet, header row, the merge key (KeyBuilder: one or
+ * several columns per side, a separator, optionally added as a column) and the columns to
  * bring in, then what the merge did (lookupInfo). Every change goes through setLookup,
  * which re-reads what it has to and re-joins the main table.
- *
- * The key pair is only sent once both columns are chosen (each change re-reads the main
- * table); until then the half-chosen pair is a local draft.
  */
 export default function LookupSettings() {
   const lookup = useWorkflowStore((state) => state.definition.lookup);
@@ -38,22 +21,26 @@ export default function LookupSettings() {
   const lookupSheets = useWorkflowStore((state) => state.lookupSheets);
   const lookupColumns = useWorkflowStore((state) => state.lookupColumns);
   const lookupInfo = useWorkflowStore((state) => state.lookupInfo);
+  const previewRows = useWorkflowStore((state) => state.previewRows);
   const mainStatus = useWorkflowStore((state) => state.status);
   const setLookup = useWorkflowStore((state) => state.setLookup);
 
   const [pending, setPending] = useState(0);
-  const [pairDraft, setPairDraft] = useState(null); // { matchColumn, lookupColumn } while only one is chosen
   const [headerDraft, setHeaderDraft] = useState(null); // header row text being edited
+  const [keyVersion, setKeyVersion] = useState(0); // remounts KeyBuilder (drops its draft) when the sheet changes
 
-  const mainColumns = useMemo(() => allColumns.filter((column) => column.origin !== "lookup"), [allColumns]);
-  const pair = pairDraft || { matchColumn: lookup.matchColumn, lookupColumn: lookup.lookupColumn };
+  // Columns of this file that can be key parts: not the ones the merge itself adds.
+  const mainColumns = useMemo(
+    () => allColumns.filter((column) => column.origin !== "lookup" && column.origin !== "key"),
+    [allColumns],
+  );
   const configured = isLookupConfigured(lookup);
   const busy = pending > 0 || mainStatus === "loading" || mainStatus === "parsing";
-  const keyName = pair.lookupColumn || lookup.lookupColumn;
-  const selection = useMemo(() => columnSelection(lookupColumns, keyName, lookup.columns), [lookupColumns, keyName, lookup.columns]);
-  const suggestion = useMemo(
-    () => suggestKeyPair(mainColumns, lookupColumns, { matchColumn: pair.matchColumn, lookupColumn: pair.lookupColumn }),
-    [pair.matchColumn, pair.lookupColumn, mainColumns, lookupColumns],
+  const lookupKeyNames = getLookupKeys(lookup).lookup;
+  const keyNamesText = lookupKeyNames.join("\u0000");
+  const selection = useMemo(
+    () => columnSelection(lookupColumns, keyNamesText ? keyNamesText.split("\u0000") : [], lookup.columns),
+    [lookupColumns, keyNamesText, lookup.columns],
   );
   const summary = describeLookupInfo(lookupInfo);
 
@@ -63,16 +50,6 @@ export default function LookupSettings() {
       await setLookup(patch);
     } finally {
       setPending((count) => count - 1);
-    }
-  };
-
-  const changePair = (key, value) => {
-    const next = { ...pair, [key]: value };
-    if ((next.matchColumn && next.lookupColumn) || configured) {
-      setPairDraft(null);
-      apply(next);
-    } else {
-      setPairDraft(next);
     }
   };
 
@@ -86,7 +63,7 @@ export default function LookupSettings() {
     }
     setHeaderDraft(null);
     if (headerNumber !== (lookup.headerRow || 1)) {
-      setPairDraft(null);
+      setKeyVersion((version) => version + 1);
       apply({ headerRow: headerNumber });
     }
   };
@@ -106,7 +83,7 @@ export default function LookupSettings() {
                 {...control}
                 value={lookup.sheetName}
                 onChange={(event) => {
-                  setPairDraft(null);
+                  setKeyVersion((version) => version + 1);
                   apply({ sheetName: event.target.value });
                 }}
               >
@@ -150,49 +127,21 @@ export default function LookupSettings() {
         </Field>
       </div>
 
-      <fieldset className="min-w-0">
-        <legend className="text-sm font-medium text-fg">Match rows</legend>
-        <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-muted sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center">
-          <span>where</span>
-          <Select
-            aria-label="Column of this file"
-            value={pair.matchColumn}
-            invalid={Boolean(pair.matchColumn) && !mainColumns.some((column) => column.name === pair.matchColumn)}
-            onChange={(event) => changePair("matchColumn", event.target.value)}
-          >
-            <ColumnOptions columns={mainColumns} value={pair.matchColumn} placeholder="Column of this file…" />
-          </Select>
-          <span>equals</span>
-          <Select
-            aria-label="Column of the second file"
-            value={pair.lookupColumn}
-            invalid={Boolean(pair.lookupColumn) && !lookupColumns.some((column) => column.name === pair.lookupColumn)}
-            onChange={(event) => changePair("lookupColumn", event.target.value)}
-          >
-            <ColumnOptions columns={lookupColumns} value={pair.lookupColumn} placeholder="Column of the second file…" />
-          </Select>
-        </div>
-        <p className="mt-1.5 text-xs text-muted">Matching ignores upper/lower case and spaces at the ends.</p>
-        {suggestion ? (
-          <Button variant="soft" size="sm" icon={Wand2} className="mt-2" onClick={() => {
-              setPairDraft(null);
-              apply(suggestion);
-            }}
-          >
-            Match on “{suggestion.matchColumn}”
-            {suggestion.lookupColumn !== suggestion.matchColumn ? ` = “${suggestion.lookupColumn}”` : ""}
-          </Button>
-        ) : null}
-        {pairDraft && !configured ? (
-          <p className="mt-1.5 text-xs text-warning">Choose both columns to merge the files.</p>
-        ) : null}
-      </fieldset>
+      <KeyBuilder
+        key={keyVersion}
+        lookup={lookup}
+        mainColumns={mainColumns}
+        lookupColumns={lookupColumns}
+        previewColumns={allColumns}
+        previewRows={previewRows}
+        onApply={apply}
+      />
 
       <fieldset className="min-w-0">
         <legend className="text-sm font-medium text-fg">Columns to bring in</legend>
         <p className="mt-0.5 text-xs text-muted">
           {selection.all
-            ? `All ${plural(selection.candidates.length, "column")} of the second file${keyName ? ", except the key" : ""}.`
+            ? `All ${plural(selection.candidates.length, "column")} of the second file${lookupKeyNames.length ? ", except the key columns" : ""}.`
             : `${selection.selected.size} of ${plural(selection.candidates.length, "column")}.`}{" "}
           A name that already exists here gets “(lookup)” added.
         </p>
@@ -225,7 +174,7 @@ export default function LookupSettings() {
       </fieldset>
 
       {!configured ? (
-        <p className="text-sm text-muted">Choose the two key columns above to merge the files.</p>
+        <p className="text-sm text-muted">Choose the key columns of both files above to merge them.</p>
       ) : busy ? (
         <p role="status" className="flex items-center gap-2 text-sm text-muted">
           <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -237,6 +186,17 @@ export default function LookupSettings() {
             <CheckCircle2 className="size-4 shrink-0 text-brand" aria-hidden="true" />
             {summary.headline}
           </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-6">
+            <Badge tone={summary.unique.main ? "brand" : "warning"}>
+              <KeyRound className="size-3" aria-hidden="true" />
+              {summary.unique.main ? "Unique in this file" : "Repeats in this file"}
+            </Badge>
+            <Badge tone={summary.unique.lookup ? "brand" : "warning"}>
+              <KeyRound className="size-3" aria-hidden="true" />
+              {summary.unique.lookup ? "Unique in the second file" : "Repeats in the second file"}
+            </Badge>
+            {summary.keyColumn ? <Badge tone="info">Key column “{summary.keyColumn}” added</Badge> : null}
+          </div>
           {summary.details.length ? (
             <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-10 text-muted">
               {summary.details.map((detail) => (
@@ -258,7 +218,7 @@ export default function LookupSettings() {
         </div>
       ) : (
         <Notice tone="warning" title="Nothing was merged">
-          The table was loaded without the second file&apos;s columns. Check the two key columns.
+          The table was loaded without the second file&apos;s columns. Check the key columns of both files.
         </Notice>
       )}
     </div>

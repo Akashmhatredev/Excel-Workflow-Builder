@@ -116,8 +116,17 @@ export const handlers = {
         lookupInfo = joined.info;
         table.warnings.push(...joined.warnings);
       } else {
-        lookupInfo = { applied: false, matched: 0, unmatched: 0, addedColumns: [], duplicateKeys: 0 };
-        table.warnings.push("Choose the match column and the lookup key column to merge the lookup file.");
+        lookupInfo = {
+          applied: false,
+          matched: 0,
+          unmatched: 0,
+          addedColumns: [],
+          duplicateKeys: 0,
+          mainDuplicateKeys: 0,
+          emptyKeys: 0,
+          keyColumn: null,
+        };
+        table.warnings.push("Choose the key columns of both files to merge the lookup file.");
       }
     }
     dataset.table = table;

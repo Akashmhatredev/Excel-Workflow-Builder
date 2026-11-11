@@ -396,3 +396,16 @@ templates. `createSummary()` builds the default and `normalizeDefinition` fills 
 version bump: the field is additive). Store action: `setSummary(patch)` (undoable, a no-op patch records nothing).
 `removeField` clears any summary key that pointed at the removed field. The UI still falls back to a sensible row
 field when `rowKey` is empty or unknown (`resolvePivot` in `components/summary/pivot.js`).
+
+## 15. Multi-column merge keys
+
+`Lookup` keys are lists: `mainKeyColumns: string[]` and `lookupKeyColumns: string[]` (the sides may differ in length),
+joined with `keySeparator` (default `"_"`, `""` allowed, at most 5 characters). `keyColumnName` (`""` = off) adds the
+main file's built key as a column with `origin: 'key'`. Older definitions with `matchColumn` / `lookupColumn` are
+converted by `normalizeDefinition`; read keys through `getLookupKeys(lookup)` (`{ main, lookup }`), which accepts both.
+`describeKey(columns, separator)` formats a key for sentences; `KEY_SEPARATORS` lists the offered separators.
+
+Engine (`lib/lookup.js`): a one-column key matches exactly as before. For several columns each part is trimmed (numbers
+in plain form, dates `YYYY-MM-DD`), the parts are joined, and the joined text is matched case-insensitively like a
+one-column key; a key with any empty part never matches. `lookupInfo` adds `mainDuplicateKeys`, `emptyKeys` and
+`keyColumn` (the added column's name or `null`). `columnUsage` labels a main key column "the merge key".

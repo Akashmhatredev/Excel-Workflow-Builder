@@ -72,7 +72,7 @@ describe("schema extras", () => {
   it("treats the lookup match column as a column reference", () => {
     const definition = createDefinition({ lookup: { enabled: true, matchColumn: "SKU", lookupColumn: "Code" } });
     expect(collectColumnRefs(definition)).toEqual(["SKU"]);
-    expect(remapColumnRefs(definition, { SKU: "Item Code" }).lookup.matchColumn).toBe("Item Code");
+    expect(remapColumnRefs(definition, { SKU: "Item Code" }).lookup.mainKeyColumns).toEqual(["Item Code"]);
   });
 });
 

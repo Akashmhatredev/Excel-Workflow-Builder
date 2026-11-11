@@ -103,3 +103,23 @@ describe("summary settings", () => {
     );
   });
 });
+
+describe("lookup keys", () => {
+  it("converts the older single-column shape and keeps separators and the key column name", async () => {
+    const { getLookupKeys, isLookupConfigured, describeKey } = await import("@/lib/schema");
+    const legacy = normalizeDefinition({ lookup: { enabled: true, matchColumn: "SKU", lookupColumn: "Code" } }).lookup;
+    expect(legacy).toMatchObject({ mainKeyColumns: ["SKU"], lookupKeyColumns: ["Code"], keySeparator: "_", keyColumnName: "" });
+    expect(legacy.matchColumn).toBeUndefined();
+    const multi = normalizeDefinition({
+      lookup: { enabled: true, mainKeyColumns: ["A", "B", ""], lookupKeyColumns: ["K"], keySeparator: "\n|", keyColumnName: "  Merge   Key " },
+    }).lookup;
+    expect(multi).toMatchObject({ mainKeyColumns: ["A", "B"], keySeparator: "|", keyColumnName: "Merge Key" });
+    expect(normalizeDefinition({ lookup: { keySeparator: "" } }).lookup.keySeparator).toBe("");
+    expect(getLookupKeys({ mainKeyColumns: [], matchColumn: "X" })).toEqual({ main: ["X"], lookup: [] });
+    expect(isLookupConfigured({ enabled: true, mainKeyColumns: ["A", "B"], lookupKeyColumns: ["K"] })).toBe(true);
+    expect(isLookupConfigured({ enabled: true, mainKeyColumns: ["A"], lookupKeyColumns: [] })).toBe(false);
+    expect(describeKey(["Customer", "Date"], "-")).toBe("Customer + Date (joined with -)");
+    expect(collectColumnRefs(createDefinition({ lookup: multi }))).toEqual(["A", "B"]);
+    expect(remapColumnRefs(createDefinition({ lookup: multi }), { B: "Bee" }).lookup.mainKeyColumns).toEqual(["A", "Bee"]);
+  });
+});

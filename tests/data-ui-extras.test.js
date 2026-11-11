@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { describeCleaningStats } from "@/components/mapping/cleaning";
 import { csvCell, describePivot, resolvePivot, summaryFileName, toCsv } from "@/components/summary/pivot";
-import { columnSelection, describeLookupInfo, suggestKeyPair, toggleColumn } from "@/components/upload/lookup";
+import { columnSelection, describeLookupInfo, exampleKey, suggestKeyPair, toggleColumn } from "@/components/upload/lookup";
 
 const fields = [
   { id: "f1", name: "Region" },
@@ -65,19 +65,27 @@ describe("lookup helpers", () => {
   const lookup = [{ name: "Return ID" }, { name: "Order ID" }, { name: "Region" }, { name: "Reason" }];
 
   it("suggests a shared, identifier-like key column", () => {
-    expect(suggestKeyPair(main, lookup)).toEqual({ matchColumn: "order id", lookupColumn: "Order ID" });
-    expect(suggestKeyPair([{ name: "Region" }], lookup)).toEqual({ matchColumn: "Region", lookupColumn: "Region" });
+    const pair = (a, b) => ({ mainKeyColumns: [a], lookupKeyColumns: [b] });
+    expect(suggestKeyPair(main, lookup)).toEqual(pair("order id", "Order ID"));
+    expect(suggestKeyPair([{ name: "Region" }], lookup)).toEqual(pair("Region", "Region"));
     expect(suggestKeyPair([{ name: "Qty" }], lookup)).toBeNull();
-    expect(suggestKeyPair(main, lookup, { matchColumn: "Region", lookupColumn: "" })).toEqual({
-      matchColumn: "Region",
-      lookupColumn: "Region",
-    });
-    expect(suggestKeyPair(main, lookup, { matchColumn: "", lookupColumn: "Order ID" })).toEqual({
-      matchColumn: "order id",
-      lookupColumn: "Order ID",
-    });
-    expect(suggestKeyPair(main, lookup, { matchColumn: "Qty", lookupColumn: "" })).toBeNull();
-    expect(suggestKeyPair(main, lookup, { matchColumn: "Qty", lookupColumn: "Reason" })).toBeNull();
+    expect(suggestKeyPair(main, lookup, { main: ["Region"], lookup: [] })).toEqual(pair("Region", "Region"));
+    expect(suggestKeyPair(main, lookup, { main: [""], lookup: ["Order ID"] })).toEqual(pair("order id", "Order ID"));
+    expect(suggestKeyPair(main, lookup, { main: ["Qty"], lookup: [] })).toBeNull();
+    expect(suggestKeyPair(main, lookup, { main: ["Qty"], lookup: ["Reason"] })).toBeNull();
+    expect(suggestKeyPair(main, lookup, { main: ["Region", "Qty"], lookup: [] })).toBeNull();
+  });
+
+  it("shows an example of the built key from the first complete preview row", () => {
+    const columns = [{ name: "Customer" }, { name: "Date" }, { name: "Line" }];
+    const rows = [
+      ["", "2024-01-05", "1"],
+      [" C001 ", "2024-01-05", "2"],
+    ];
+    expect(exampleKey(columns, rows, ["Customer", "Date", "Line"], "_")).toBe("C001_2024-01-05_2");
+    expect(exampleKey(columns, rows, ["Date", "Line"], "")).toBe("2024-01-051");
+    expect(exampleKey(columns, rows, ["Nope"], "_")).toBeNull();
+    expect(exampleKey(columns, rows, [], "_")).toBeNull();
   });
 
   it("treats [] as every column except the key and never leaves none chosen", () => {
@@ -85,6 +93,7 @@ describe("lookup helpers", () => {
     expect(all.candidates).toEqual(["Return ID", "Region", "Reason"]);
     expect(all.all).toBe(true);
     expect(toggleColumn(all, "Region", false)).toEqual(["Return ID", "Reason"]);
+    expect(columnSelection(lookup, ["Order ID", "Region"], []).candidates).toEqual(["Return ID", "Reason"]);
     const one = columnSelection(lookup, "Order ID", ["Reason", "Missing"]);
     expect([...one.selected]).toEqual(["Reason"]);
     expect(toggleColumn(one, "Reason", false)).toBeNull();
@@ -101,5 +110,13 @@ describe("lookup helpers", () => {
       "3 duplicate keys in the second file (the first matching row is used)",
     ]);
     expect(info.added).toEqual(["Reason"]);
+    expect(info.unique).toEqual({ lookup: false, main: true });
+    const keyed = describeLookupInfo({ applied: true, matched: 4, unmatched: 1, emptyKeys: 1, mainDuplicateKeys: 2, keyColumn: "Merge Key" });
+    expect(keyed.details).toEqual([
+      "1 row without a match (their new cells stay empty)",
+      "1 row with an empty key part (never matched)",
+      "2 key values repeat in this file (each of those rows still gets the match)",
+    ]);
+    expect(keyed.keyColumn).toBe("Merge Key");
   });
 });
